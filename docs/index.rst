@@ -1,9 +1,9 @@
-.. data-science-template documentation master file, created by
+.. game-insight-project documentation master file, created by
    sphinx-quickstart.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-data-science-template documentation!
+game-insight-project documentation!
 ==============================================
 
 Contents:
