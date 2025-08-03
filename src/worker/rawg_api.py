@@ -7,6 +7,8 @@ RAWG API. It handles API key authentication, request retries, and pagination.
 import os
 import time
 import requests
+import calendar
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 BASE_URL = "https://api.rawg.io/api/games"
@@ -49,12 +51,13 @@ def make_request(
     return None
 
 
-def fetch_games_for_year(year: int) -> List[Dict[str, Any]]:
+def fetch_games_for_month(year: int, month: int) -> List[Dict[str, Any]]:
     """
-    Fetches all games released in a specific year from the RAWG API.
+    Fetches all games released in a specific month from the RAWG API.
 
     Args:
         year: The year to fetch games for.
+        month: The month to fetch games for (1-12).
 
     Returns:
         A list of dictionaries, where each dictionary represents a game.
@@ -62,11 +65,57 @@ def fetch_games_for_year(year: int) -> List[Dict[str, Any]]:
     if not API_KEY:
         raise ValueError("RAWG_API_KEY environment variable not set.")
 
+    # Get the number of days in the given month and year
+    _, num_days = calendar.monthrange(year, month)
+
+    start_date = f"{year}-{month:02d}-01"
+    end_date = f"{year}-{month:02d}-{num_days}"
+
     params = {
         "key": API_KEY,
         "page": 1,
         "page_size": 40,
-        "dates": f"{year}-01-01,{year}-12-31",
+        "dates": f"{start_date},{end_date}",
+    }
+
+    all_games = []
+    while True:
+        response = make_request(url=BASE_URL, params=params)
+        if response is None:
+            break
+
+        data = response.json()
+        all_games.extend(data.get("results", []))
+
+        if "next" in data and data["next"]:
+            params["page"] += 1
+        else:
+            break
+
+    return all_games
+
+
+def fetch_recently_updated_games(days: int = 7) -> List[Dict[str, Any]]:
+    """
+    Fetches all games updated in the last `days` from the RAWG API.
+
+    Args:
+        days: The number of days to look back for updates.
+
+    Returns:
+        A list of dictionaries, where each dictionary represents a game.
+    """
+    if not API_KEY:
+        raise ValueError("RAWG_API_KEY environment variable not set.")
+
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
+
+    params = {
+        "key": API_KEY,
+        "page": 1,
+        "page_size": 40,
+        "updated": f"{start_date.strftime('%Y-%m-%d')},{end_date.strftime('%Y-%m-%d')}",
     }
 
     all_games = []

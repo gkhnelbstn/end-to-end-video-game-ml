@@ -7,6 +7,8 @@ for data ingestion.
 """
 from src.backend.celery_app import celery_app
 from src.worker import rawg_api
+from src.backend import crud, schemas
+from src.backend.database import SessionLocal
 import time
 
 
@@ -14,41 +16,70 @@ import time
 def example_task(x: int, y: int) -> int:
     """
     An example task that adds two numbers.
-
-    This is a simple task to demonstrate Celery functionality and for testing
-    purposes. It simulates a delay to represent a long-running operation.
-
-    Args:
-        x: The first number.
-        y: The second number.
-
-    Returns:
-        The sum of x and y.
     """
     time.sleep(5)
     return x + y
 
 
 @celery_app.task
-def fetch_games_for_year_task(year: int) -> dict[str, str | int]:
+def fetch_games_for_month_task(year: int, month: int) -> dict[str, str | int]:
     """
-    A Celery task to fetch all games for a specific year from the RAWG API.
-
-    This task wraps the `fetch_games_for_year` function from the `rawg_api`
-    module, allowing it to be executed asynchronously by a Celery worker.
-
-    Args:
-        year: The year to fetch games for.
-
-    Returns:
-        A dictionary with the status and the number of games fetched.
+    A Celery task to fetch and save all games for a specific month from the RAWG API.
     """
-    print(f"Starting to fetch games for the year {year}...")
-    games = rawg_api.fetch_games_for_year(year)
-    games_fetched = len(games)
-    print(f"Successfully fetched {games_fetched} games for the year {year}.")
+    print(f"Starting to fetch games for {year}-{month:02d}...")
+    games_data = rawg_api.fetch_games_for_month(year, month)
+    games_fetched = len(games_data)
+    print(f"Successfully fetched {games_fetched} games for {year}-{month:02d}.")
 
-    # In a real application, you would save the `games` data to the database here.
-    # For now, we just return a status message.
+    db = SessionLocal()
+    games_created = 0
+    for game_data in games_data:
+        game = crud.get_game_by_slug(db, slug=game_data["slug"])
+        if not game:
+            game_schema = schemas.GameCreate(**game_data)
+            crud.create_game(db, game=game_schema)
+            games_created += 1
+    db.close()
 
-    return {"status": "success", "year": year, "games_fetched": games_fetched}
+    print(f"Created {games_created} new games in the database.")
+    return {
+        "status": "success",
+        "year": year,
+        "month": month,
+        "games_fetched": games_fetched,
+        "games_created": games_created,
+    }
+
+
+@celery_app.task
+def fetch_weekly_updates_task() -> dict[str, str | int]:
+    """
+    A Celery task to fetch and save/update games updated in the last week.
+    """
+    print("Starting to fetch weekly game updates...")
+    games_data = rawg_api.fetch_recently_updated_games(days=7)
+    games_fetched = len(games_data)
+    print(f"Successfully fetched {games_fetched} recently updated games.")
+
+    db = SessionLocal()
+    games_created = 0
+    games_updated = 0
+    for game_data in games_data:
+        game = crud.get_game_by_slug(db, slug=game_data["slug"])
+        if not game:
+            game_schema = schemas.GameCreate(**game_data)
+            crud.create_game(db, game=game_schema)
+            games_created += 1
+        else:
+            # Here you would implement the logic to update an existing game.
+            # For now, we'll just count it as an update.
+            games_updated += 1
+    db.close()
+
+    print(f"Created {games_created} new games and found {games_updated} existing games to update.")
+    return {
+        "status": "success",
+        "games_fetched": games_fetched,
+        "games_created": games_created,
+        "games_updated": games_updated,
+    }
