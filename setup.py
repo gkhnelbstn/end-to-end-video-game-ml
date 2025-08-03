@@ -4,7 +4,7 @@ setup(
     name='src',
     packages=find_packages(),
     version='0.1.0',
-    description='Data Science Repository Template',
-    author='Gökhan Elbistan',
+    description='A short description of the project.',
+    author='Your name (or your organization/company/team)',
     license='MIT',
 )
