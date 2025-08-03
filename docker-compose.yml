@@ -40,17 +40,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - ./.env
     environment:
       - PYTHONPATH=/app
-      - DATABASE_URL=postgresql://user:password@db:5432/game_insight_db
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
   frontend:
     build:
@@ -77,6 +70,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - ./.env
     environment:
       - PYTHONPATH=/app
 
@@ -93,6 +88,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - ./.env
     environment:
       - PYTHONPATH=/app
 

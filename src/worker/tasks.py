@@ -6,6 +6,7 @@ by the Celery workers. This includes both ad-hoc tasks and scheduled tasks
 for data ingestion.
 """
 from src.backend.celery_app import celery_app
+from src.worker import rawg_api
 import time
 
 
@@ -24,21 +25,30 @@ def example_task(x: int, y: int) -> int:
     Returns:
         The sum of x and y.
     """
-    time.sleep(5)  # Simulate a long-running task
+    time.sleep(5)
     return x + y
 
 
 @celery_app.task
-def fetch_games() -> dict[str, str | int]:
+def fetch_games_for_year_task(year: int) -> dict[str, str | int]:
     """
-    Fetches game data from the RAWG API.
+    A Celery task to fetch all games for a specific year from the RAWG API.
 
-    This is a placeholder for the main data ingestion task. In the future,
-    this task will handle the logic for connecting to the RAWG API, fetching
-    new or updated game data, and storing it in the database.
+    This task wraps the `fetch_games_for_year` function from the `rawg_api`
+    module, allowing it to be executed asynchronously by a Celery worker.
+
+    Args:
+        year: The year to fetch games for.
+
+    Returns:
+        A dictionary with the status and the number of games fetched.
     """
-    # This is where the logic to fetch data from RAWG API will go.
-    print("Fetching game data from RAWG API...")
-    time.sleep(10)  # Simulate API call
-    print("Data fetching complete.")
-    return {"status": "success", "games_fetched": 100}
+    print(f"Starting to fetch games for the year {year}...")
+    games = rawg_api.fetch_games_for_year(year)
+    games_fetched = len(games)
+    print(f"Successfully fetched {games_fetched} games for the year {year}.")
+
+    # In a real application, you would save the `games` data to the database here.
+    # For now, we just return a status message.
+
+    return {"status": "success", "year": year, "games_fetched": games_fetched}

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-# game-insight-project documentation build configuration file, created by
+# data-science-template documentation build configuration file, created by
 # sphinx-quickstart.
 #
 # This file is execfile()d with the current directory set to its containing dir.
@@ -41,7 +41,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = u'game-insight-project'
+project = u'data-science-template'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -164,7 +164,7 @@ html_static_path = ['_static']
 # html_file_suffix = None
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'game-insight-projectdoc'
+htmlhelp_basename = 'data-science-templatedoc'
 
 
 # -- Options for LaTeX output --------------------------------------------------
@@ -184,9 +184,9 @@ latex_elements = {
 # (source start file, target name, title, author, documentclass [howto/manual]).
 latex_documents = [
     ('index',
-     'game-insight-project.tex',
-     u'game-insight-project Documentation',
-     u"Your name (or your organization/company/team)", 'manual'),
+     'data-science-template.tex',
+     u'data-science-template Documentation',
+     u"Gökhan Elbistan", 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -215,8 +215,8 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    ('index', 'game-insight-project', u'game-insight-project Documentation',
-     [u"Your name (or your organization/company/team)"], 1)
+    ('index', 'data-science-template', u'data-science-template Documentation',
+     [u"Gökhan Elbistan"], 1)
 ]
 
 # If true, show URL addresses after external links.
@@ -229,9 +229,9 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    ('index', 'game-insight-project', u'game-insight-project Documentation',
-     u"Your name (or your organization/company/team)", 'game-insight-project',
-     'A short description of the project.', 'Miscellaneous'),
+    ('index', 'data-science-template', u'data-science-template Documentation',
+     u"Gökhan Elbistan", 'data-science-template',
+     'Data Science Repository Template', 'Miscellaneous'),
 ]
 
 # Documents to append as an appendix to all manuals.

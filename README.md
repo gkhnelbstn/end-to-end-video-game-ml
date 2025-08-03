@@ -1,84 +1,62 @@
-# Game Insight Project
+# 🧠 Data Science Project Template
 
-This project is designed to collect, analyze, and model video game data from the [RAWG.io API](https://rawg.io/apidocs). The system periodically fetches game data, stores it in a database, visualizes it through a Streamlit-based interface, and uses machine learning models to generate insights and predictions (e.g., game popularity, sales figures).
+Welcome to your new data science project! This template is designed to help you kickstart your data science journey with a well-structured and organized project setup.
 
-## Project Goals
+## 🌟 Project Overview
 
--   **Data Ingestion:** Periodically fetch video game data from the RAWG API, handling rate limits gracefully.
--   **Data Storage:** Store the collected data in a structured PostgreSQL database.
--   **Data Visualization:** Provide data insights through a user-friendly dashboard built with Streamlit.
--   **Machine Learning:** Develop models to predict game popularity scores, market trends, or potential sales figures.
--   **User Management:** Implement a user registration and authentication system.
+Provide a brief description of your project. What are you trying to achieve? What data are you working with? What insights or outcomes do you expect?
 
-## Tech Stack
+## 🔧 Requirements
 
-This project utilizes the following technologies and libraries:
+To use this template, make sure you have the following installed:
 
--   **Backend:**
-    -   **Framework:** FastAPI
-    -   **Package Manager:** uv
--   **Frontend:**
-    -   **Framework:** Streamlit
--   **Database:**
-    -   **System:** PostgreSQL 17
--   **Task Queue & Scheduling:**
-    -   **Task Manager:** Celery
-    -   **Message Broker:** Redis
--   **Containerization:**
-    -   **Platform:** Docker & Docker Compose
--   **Testing:**
-    -   **Framework:** Pytest
--   **Project Template:**
-    -   [Cookiecutter Data Science](https://github.com/drivendata/cookiecutter-data-science)
+- **Python**: 2.7 or 3.5+
 
-## Getting Started
+## 📁 Directory Structure
+Here's what your new project directory will look like:
 
-To run this project locally, you need to have Docker and Docker Compose installed.
+## 📦 project_name
+- [LICENSE](./LICENSE)
+- [Makefile](./Makefile) - Makefile with commands like `make data` or `make train`
+- [README.md](./README.md) - The top-level README for developers using this project.
+- [data](./data)
+  - [external](./data/external) - Data from third party sources.
+  - [interim](./data/interim) - Intermediate data that has been transformed.
+  - [processed](./data/processed) - The final, canonical data sets for modeling.
+  - [raw](./data/raw) - The original, immutable data dump.
+- [docs](./docs) - A default Sphinx project; see [sphinx-doc.org](https://www.sphinx-doc.org/) for details.
+- [models](./models) - Trained and serialized models, model predictions, or model summaries.
+- [notebooks](./notebooks) - Jupyter notebooks. Naming convention is a number (for ordering), the creator's initials, and a short `-` delimited description, e.g. `1.0-jqp-initial-data-exploration`.
+- [references](./references) - Data dictionaries, manuals, and all other explanatory materials.
+- [reports](./reports) - Generated analysis as HTML, PDF, LaTeX, etc.
+  - [figures](./reports/figures) - Generated graphics and figures to be used in reporting.
+- [requirements.txt](./requirements.txt) - The requirements file for reproducing the analysis environment, e.g. generated with `pip freeze > requirements.txt`.
+- [setup.py](./setup.py) - Makes project pip installable (`pip install -e .`) so `src` can be imported.
+- [src](./src) - Source code for use in this project.
+  - [__init__.py](./src/__init__.py) - Makes `src` a Python module.
+  - [data](./src/data) - Scripts to download or generate data.
+    - [make_dataset.py](./src/data/make_dataset.py)
+  - [features](./src/features) - Scripts to turn raw data into features for modeling.
+    - [build_features.py](./src/features/build_features.py)
+  - [models](./src/models) - Scripts to train models and then use trained models to make predictions.
+    - [predict_model.py](./src/models/predict_model.py)
+    - [train_model.py](./src/models/train_model.py)
+  - [visualization](./src/visualization) - Scripts to create exploratory and results-oriented visualizations.
+    - [visualize.py](./src/visualization/visualize.py)
+- [tox.ini](./tox.ini) - tox file with settings for running tox; see [tox.readthedocs.io](https://tox.readthedocs.io/).
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository-url>
-    cd game-insight-project
-    ```
+## 🛠️ Installing Development Requirements
+To install the development requirements, run:
+```
+pip install -r requirements.txt
+```
+## ✅ Running the Tests
+To run the tests, use:
+```
+py.test tests
+```
+Happy coding! 🎉 If you have any questions, feel free to reach out to [gkhnelbstn](https://github.com/gkhnelbstn).
 
-2.  **Start the services using Docker Compose:**
-    ```bash
-    docker compose up --build -d
-    ```
+Feel free to adjust the content as needed and enjoy your data science projects!
 
-This command will build the images and start all services (Backend, Frontend, Database, Redis, Worker, Scheduler) in detached mode.
--   **Backend API:** [http://localhost:8000](http://localhost:8000)
--   **Frontend Dashboard:** [http://localhost:8501](http://localhost:8501)
 
-## Project Structure
-
-The project is organized based on the `cookiecutter-data-science` template. Service-specific code is located under the `src/` directory.
-
-    ├── LICENSE
-    ├── Makefile           <- Makefile with common commands.
-    ├── README.md          <- This file.
-    ├── docker-compose.yml <- Docker Compose file for managing services.
-    ├── requirements.txt   <- Main project dependencies (for uv).
-    ├── setup.py           <- Makes the project pip-installable.
-    ├── src                <- Main source code for the project.
-    │   ├── __init__.py
-    │   │
-    │   ├── backend        <- FastAPI application, API endpoints, and Celery configuration.
-    │   │   ├── Dockerfile
-    │   │   ├── requirements.txt
-    │   │   └── main.py
-    │   │
-    │   ├── frontend       <- Streamlit dashboard application.
-    │   │   ├── Dockerfile
-    │   │   ├── requirements.txt
-    │   │   └── app.py
-    │   │
-    │   └── worker         <- Celery tasks for periodic data ingestion.
-    │       └── tasks.py
-    │
-    ├── tests              <- Pytest tests for the application.
-    └── ... (other cookiecutter directories)
-
---------
-
-<p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>

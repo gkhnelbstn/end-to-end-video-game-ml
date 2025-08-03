@@ -1,30 +1,25 @@
 # Use an official Python runtime as a parent image
-FROM python:3.12-slim
+FROM python:3.10-slim
 
 # Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
 
-# Set working directory
+# Set the working directory in the container
 WORKDIR /app
 
-# Install required system packages
-RUN apt-get update && \
-    apt-get install -y curl && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Install uv
+RUN pip install uv
 
-# Install uv pip wrapper
-RUN pip install --no-cache-dir uv
-
-# Copy and install Python dependencies
+# Copy the requirements file into the container at /app
 COPY ./src/backend/requirements.txt /app/
-RUN uv pip install --system --no-cache-dir -r requirements.txt
 
-# Copy application source code
+# Install any needed packages specified in requirements.txt
+RUN uv pip install --system --no-cache-dir -r /app/requirements.txt
+
+# Copy the rest of the application's source code from the context
+# The context is the root of the project
 COPY ./src /app/src
 COPY ./tests /app/tests
 
-# Set default command for backend
-CMD ["uvicorn", "src.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# The command to run the application will be specified in docker-compose.yml
