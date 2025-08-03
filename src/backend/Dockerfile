@@ -1,25 +1,30 @@
 # Use an official Python runtime as a parent image
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 # Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
 
-# Set the working directory in the container
+# Set working directory
 WORKDIR /app
 
-# Install uv
-RUN pip install uv
+# Install required system packages
+RUN apt-get update && \
+    apt-get install -y curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy the requirements file into the container at /app
+# Install uv pip wrapper
+RUN pip install --no-cache-dir uv
+
+# Copy and install Python dependencies
 COPY ./src/backend/requirements.txt /app/
+RUN uv pip install --system --no-cache-dir -r requirements.txt
 
-# Install any needed packages specified in requirements.txt
-RUN uv pip install --system --no-cache-dir -r /app/requirements.txt
-
-# Copy the rest of the application's source code from the context
-# The context is the root of the project (game-insight-project)
+# Copy application source code
 COPY ./src /app/src
 COPY ./tests /app/tests
 
-# The command to run the application will be specified in docker-compose.yml
+# Set default command for backend
+CMD ["uvicorn", "src.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
