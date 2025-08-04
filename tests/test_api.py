@@ -132,3 +132,17 @@ def test_remove_favorite_game(test_db):
     assert response.status_code == 200
     data = response.json()
     assert "Game C" not in [g["name"] for g in data["favorite_games"]]
+
+def test_get_games_per_year(test_db):
+    response = client.get("/api/stats/games-per-year")
+    assert response.status_code == 200
+    data = response.json()
+    assert {"year": 2023, "count": 2} in data
+    assert {"year": 2022, "count": 1} in data
+
+def test_get_avg_rating_by_genre(test_db):
+    response = client.get("/api/stats/avg-rating-by-genre")
+    assert response.status_code == 200
+    data = response.json()
+    assert {"genre": "Action", "avg_rating": (4.5 + 4.8) / 2} in data
+    assert {"genre": "RPG", "avg_rating": 3.5} in data

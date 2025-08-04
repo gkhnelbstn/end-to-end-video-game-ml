@@ -137,6 +137,23 @@ def get_favorite_games(db: Session, user: models.User):
     return user.favorite_games
 
 
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+from . import models, schemas
+
+def get_games_per_year(db: Session):
+    """
+    Gets the number of games released per year.
+    """
+    return db.query(func.extract('year', models.Game.released), func.count(models.Game.id)).group_by(func.extract('year', models.Game.released)).all()
+
+def get_average_rating_by_genre(db: Session):
+    """
+    Gets the average rating for each genre.
+    """
+    return db.query(models.Genre.name, func.avg(models.Game.rating)).join(models.Game.genres).group_by(models.Genre.name).all()
+
+
 def update_game(db: Session, db_game: models.Game, game_update: schemas.GameCreate):
     """
     Updates an existing game and its relationships.

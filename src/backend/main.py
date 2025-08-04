@@ -136,3 +136,21 @@ def get_favorites(
         raise HTTPException(status_code=403, detail="Not authorized to view this user's favorites")
 
     return crud.get_favorite_games(db=db, user=current_user)
+
+
+# --- Stats Endpoints ---
+
+@app.get("/api/stats/games-per-year")
+def get_games_per_year(db: Session = Depends(get_db)):
+    """
+    Get the number of games released per year.
+    """
+    return crud.get_games_per_year(db)
+
+
+@app.get("/api/stats/avg-rating-by-genre")
+def get_avg_rating_by_genre(db: Session = Depends(get_db)):
+    """
+    Get the average rating for each genre.
+    """
+    return crud.get_average_rating_by_genre(db)
