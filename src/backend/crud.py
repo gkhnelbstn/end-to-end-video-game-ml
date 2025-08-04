@@ -103,11 +103,25 @@ def create_game(db: Session, game: schemas.GameCreate):
     return db_game
 
 
+from . import security
+
 def get_user_by_email(db: Session, email: str):
     """
     Gets a user by their email address.
     """
     return db.query(models.User).filter(models.User.email == email).first()
+
+
+def create_user(db: Session, user: schemas.UserCreate):
+    """
+    Creates a new user.
+    """
+    hashed_password = security.get_password_hash(user.password)
+    db_user = models.User(email=user.email, hashed_password=hashed_password)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
 
 
 def add_favorite_game(db: Session, user: models.User, game: models.Game):
