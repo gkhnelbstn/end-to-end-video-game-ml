@@ -43,17 +43,28 @@ def health_check() -> dict[str, str]:
 def list_games(
     db: Session = Depends(get_db),
     search: Optional[str] = None,
+    genre: Optional[str] = None,
+    platform: Optional[str] = None,
+    rating: Optional[float] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = "asc",
     skip: int = 0,
     limit: int = 100,
 ):
     """
-    List games with optional search and pagination.
+    List games with optional filtering, sorting, search, and pagination.
     """
-    # This is a simplified implementation. A real implementation would use
-    # the new view and have more advanced filtering.
-    if search:
-        return db.query(models.Game).filter(models.Game.name.contains(search)).offset(skip).limit(limit).all()
-    return db.query(models.Game).offset(skip).limit(limit).all()
+    return crud.get_games(
+        db=db,
+        search=search,
+        genre=genre,
+        platform=platform,
+        rating=rating,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @app.get("/api/games/{game_id}", response_model=schemas.Game)

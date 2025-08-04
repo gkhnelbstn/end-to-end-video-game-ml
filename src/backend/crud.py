@@ -27,6 +27,44 @@ def get_game_by_slug(db: Session, slug: str):
     return db.query(models.Game).filter(models.Game.slug == slug).first()
 
 
+from sqlalchemy import desc
+
+def get_games(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    search: str = None,
+    genre: str = None,
+    platform: str = None,
+    rating: float = None,
+    sort_by: str = None,
+    sort_order: str = "asc",
+):
+    """
+    Gets a list of games with optional filtering and sorting.
+    """
+    query = db.query(models.Game)
+
+    if search:
+        query = query.filter(models.Game.name.contains(search))
+    if genre:
+        query = query.join(models.Game.genres).filter(models.Genre.slug == genre)
+    if platform:
+        query = query.join(models.Game.platforms).filter(models.Platform.slug == platform)
+    if rating:
+        query = query.filter(models.Game.rating >= rating)
+
+    if sort_by:
+        sort_column = getattr(models.Game, sort_by, None)
+        if sort_column:
+            if sort_order == "desc":
+                query = query.order_by(desc(sort_column))
+            else:
+                query = query.order_by(sort_column)
+
+    return query.offset(skip).limit(limit).all()
+
+
 def create_game(db: Session, game: schemas.GameCreate):
     """
     Creates a new game and its relationships.
