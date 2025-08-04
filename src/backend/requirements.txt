@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+celery
+redis
+psycopg2-binary
+python-dotenv
+SQLAlchemy
+pytest
+httpx
+flower
+python-json-logger
+fastapi-admin
+passlib[bcrypt]
+python-jose[cryptography]

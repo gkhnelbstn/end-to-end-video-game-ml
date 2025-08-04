@@ -1,0 +1,177 @@
+services:
+  db:
+    image: postgres:17
+    container_name: game-insight-db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=game_insight_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d game_insight_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:6.2-alpine
+    container_name: game-insight-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  fluentd:
+    image: fluent/fluentd:v1.16-1
+    container_name: game-insight-fluentd
+    volumes:
+      - ./fluentd:/fluentd/etc
+      - ./logs:/fluentd/log
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+
+  backend:
+    build:
+      context: .
+      dockerfile: ./src/backend/Dockerfile
+    container_name: game-insight-backend
+    command: uvicorn src.backend.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      fluentd:
+        condition: service_started
+    env_file:
+      - ./.env
+    environment:
+      - PYTHONPATH=/app
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
+
+  flower:
+    build:
+      context: .
+      dockerfile: ./src/backend/Dockerfile
+    container_name: game-insight-flower
+    command: celery -A src.backend.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+      fluentd:
+        condition: service_started
+    env_file:
+      - ./.env
+    environment:
+      - PYTHONPATH=/app
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ./src/frontend/Dockerfile
+    container_name: game-insight-frontend
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      - backend
+      - fluentd
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
+
+  worker:
+    build:
+      context: .
+      dockerfile: ./src/backend/Dockerfile # Reusing backend Dockerfile
+    container_name: game-insight-worker
+    command: celery -A src.backend.celery_app worker --loglevel=info
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      fluentd:
+        condition: service_started
+    env_file:
+      - ./.env
+    environment:
+      - PYTHONPATH=/app
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: ./src/backend/Dockerfile # Reusing backend Dockerfile
+    container_name: game-insight-scheduler
+    command: celery -A src.backend.celery_app beat --loglevel=info
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      fluentd:
+        condition: service_started
+    env_file:
+      - ./.env
+    environment:
+      - PYTHONPATH=/app
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
+
+  test:
+    build:
+      context: .
+      dockerfile: ./src/backend/Dockerfile
+    container_name: game-insight-test-runner
+    depends_on:
+      backend:
+        condition: service_healthy
+      fluentd:
+        condition: service_started
+    environment:
+      - PYTHONPATH=/app
+      - BACKEND_BASE_URL=http://backend:8000
+    command: ["pytest", "/app/tests"]
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
+
+volumes:
+  postgres_data:
