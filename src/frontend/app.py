@@ -14,7 +14,7 @@ st.title("🎮 Game Insight Project")
 
 # --- Sidebar for Filtering and Sorting ---
 st.sidebar.header("Navigation")
-page = st.sidebar.radio("Go to", ["Home", "Profile"])
+page = st.sidebar.radio("Go to", ["Home", "Profile", "Register"])
 
 st.sidebar.header("Filter and Sort")
 
@@ -159,3 +159,23 @@ elif page == "Profile":
 
     except httpx.HTTPError as e:
         st.error(f"Failed to fetch user profile from the backend: {e}")
+
+elif page == "Register":
+    st.header("Register New User")
+    with st.form("registration_form"):
+        email = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Register")
+
+        if submitted:
+            try:
+                response = httpx.post(
+                    f"{BACKEND_URL}/api/users",
+                    json={"email": email, "password": password},
+                )
+                response.raise_for_status()
+                st.success("User registered successfully!")
+            except httpx.HTTPStatusError as e:
+                st.error(f"Failed to register user: {e.response.json().get('detail')}")
+            except httpx.RequestError as e:
+                st.error(f"An error occurred while registering user: {e}")

@@ -146,3 +146,21 @@ def test_get_avg_rating_by_genre(test_db):
     data = response.json()
     assert {"genre": "Action", "avg_rating": (4.5 + 4.8) / 2} in data
     assert {"genre": "RPG", "avg_rating": 3.5} in data
+
+def test_create_user(test_db):
+    response = client.post(
+        "/api/users",
+        json={"email": "newuser@example.com", "password": "newpassword"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["email"] == "newuser@example.com"
+    assert "id" in data
+
+def test_create_user_duplicate_email(test_db):
+    response = client.post(
+        "/api/users",
+        json={"email": "test@example.com", "password": "password"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Email already registered"
