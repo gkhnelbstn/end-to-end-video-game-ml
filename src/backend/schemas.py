@@ -24,6 +24,51 @@ class Genre(GenreBase):
         orm_mode = True
 
 
+class PlatformBase(BaseModel):
+    id: int
+    name: str
+    slug: str
+
+
+class PlatformCreate(PlatformBase):
+    pass
+
+
+class Platform(PlatformBase):
+    class Config:
+        orm_mode = True
+
+
+class StoreBase(BaseModel):
+    id: int
+    name: str
+    slug: str
+
+
+class StoreCreate(StoreBase):
+    pass
+
+
+class Store(StoreBase):
+    class Config:
+        orm_mode = True
+
+
+class TagBase(BaseModel):
+    id: int
+    name: str
+    slug: str
+
+
+class TagCreate(TagBase):
+    pass
+
+
+class Tag(TagBase):
+    class Config:
+        orm_mode = True
+
+
 class GameBase(BaseModel):
     id: int
     slug: str
@@ -37,10 +82,16 @@ class GameBase(BaseModel):
 
 class GameCreate(GameBase):
     genres: List[GenreCreate] = []
+    platforms: List[PlatformCreate] = []
+    stores: List[StoreCreate] = []
+    tags: List[TagCreate] = []
 
 
 class Game(GameBase):
     genres: List[Genre] = []
+    platforms: List[Platform] = []
+    stores: List[Store] = []
+    tags: List[Tag] = []
 
     class Config:
         orm_mode = True

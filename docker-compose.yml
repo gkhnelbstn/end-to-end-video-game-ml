@@ -167,6 +167,31 @@ services:
       - PYTHONPATH=/app
       - BACKEND_BASE_URL=http://backend:8000
     command: ["pytest", "/app/tests"]
+    # logging:
+    #   driver: "fluentd"
+    #   options:
+    #     fluentd-address: localhost:24224
+    #     tag: docker.{{.Name}}
+
+  backfill:
+    build:
+      context: .
+      dockerfile: ./src/backend/Dockerfile # Reusing backend Dockerfile
+    container_name: game-insight-backfill
+    command: python src/scripts/backfill_data.py
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      fluentd:
+        condition: service_started
+    env_file:
+      - ./.env
+    environment:
+      - PYTHONPATH=/app
     logging:
       driver: "fluentd"
       options:

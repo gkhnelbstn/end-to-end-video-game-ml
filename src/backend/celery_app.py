@@ -36,12 +36,15 @@ celery_app.conf.update(
     task_track_started=True,
 )
 
-# Optional: Configure periodic tasks (Celery Beat).
-# This is where scheduled tasks can be defined.
-# Example:
-# celery_app.conf.beat_schedule = {
-#     'fetch-games-every-hour': {
-#         'task': 'src.worker.tasks.fetch_games',
-#         'schedule': 3600.0,  # in seconds
-#     },
-# }
+from celery.schedules import crontab
+
+celery_app.conf.beat_schedule = {
+    'fetch-monthly-updates': {
+        'task': 'src.worker.tasks.fetch_monthly_updates_task',
+        'schedule': crontab(day_of_month='1', hour=0, minute=0),
+    },
+    'fetch-weekly-updates': {
+        'task': 'src.worker.tasks.fetch_weekly_updates_task',
+        'schedule': crontab(day_of_week='monday', hour=0, minute=0),
+    },
+}
