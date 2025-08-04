@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from . import models
 from .database import engine
 from .logging import setup_logging
+from .admin import admin_app
 
 # Set up logging
 setup_logging()
@@ -17,6 +18,9 @@ app = FastAPI(
     description="API for collecting and serving video game data.",
     version="0.1.0",
 )
+
+# Mount the admin app
+app.mount("/admin", admin_app)
 
 
 @app.get("/")

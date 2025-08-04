@@ -64,6 +64,20 @@ The database schema is defined using SQLAlchemy in `src/backend/models.py`. It i
 
 The relationships between these tables are managed through association tables.
 
+## Admin Panel
+
+This project includes a web-based admin panel for managing database models, accessible at `http://localhost:8000/admin`.
+
+### Creating an Admin User
+
+To use the admin panel, you first need to create an admin user. You can do this by running the following command in your terminal:
+
+```bash
+docker compose exec backend python src/backend/create_admin.py
+```
+
+This script will prompt you to enter an email and password for the new admin user. Once created, you can use these credentials to log in to the admin panel.
+
 ## Project Structure
 
 The project is organized based on the `cookiecutter-data-science` template. Service-specific code is located under the `src/` directory.

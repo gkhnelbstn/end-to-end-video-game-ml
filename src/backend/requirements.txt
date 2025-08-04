@@ -10,3 +10,5 @@ httpx
 requests
 flower
 python-json-logger
+fastapi-admin
+passlib[bcrypt]
