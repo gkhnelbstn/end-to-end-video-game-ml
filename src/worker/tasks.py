@@ -36,7 +36,22 @@ def fetch_games_for_month_task(year: int, month: int) -> dict[str, str | int]:
     for game_data in games_data:
         game = crud.get_game_by_slug(db, slug=game_data["slug"])
         if not game:
-            game_schema = schemas.GameCreate(**game_data)
+            # Prepare the data for GameCreate schema
+            game_create_data = {
+                "id": game_data.get("id"),
+                "slug": game_data.get("slug"),
+                "name": game_data.get("name"),
+                "released": game_data.get("released"),
+                "rating": game_data.get("rating"),
+                "ratings_count": game_data.get("ratings_count"),
+                "metacritic": game_data.get("metacritic"),
+                "playtime": game_data.get("playtime"),
+                "genres": game_data.get("genres", []),
+                "platforms": [p["platform"] for p in game_data.get("platforms", [])],
+                "stores": [s["store"] for s in game_data.get("stores", [])],
+                "tags": game_data.get("tags", []),
+            }
+            game_schema = schemas.GameCreate(**game_create_data)
             crud.create_game(db, game=game_schema)
             games_created += 1
     db.close()
@@ -49,6 +64,21 @@ def fetch_games_for_month_task(year: int, month: int) -> dict[str, str | int]:
         "games_fetched": games_fetched,
         "games_created": games_created,
     }
+
+
+from datetime import datetime, timedelta
+
+@celery_app.task
+def fetch_monthly_updates_task() -> dict[str, str | int]:
+    """
+    A Celery task to fetch and save all games for the previous month.
+    """
+    today = datetime.today()
+    first_day_of_current_month = today.replace(day=1)
+    last_day_of_previous_month = first_day_of_current_month - timedelta(days=1)
+    year = last_day_of_previous_month.year
+    month = last_day_of_previous_month.month
+    return fetch_games_for_month_task(year, month)
 
 
 @celery_app.task
@@ -65,18 +95,32 @@ def fetch_weekly_updates_task() -> dict[str, str | int]:
     games_created = 0
     games_updated = 0
     for game_data in games_data:
+        game_create_data = {
+            "id": game_data.get("id"),
+            "slug": game_data.get("slug"),
+            "name": game_data.get("name"),
+            "released": game_data.get("released"),
+            "rating": game_data.get("rating"),
+            "ratings_count": game_data.get("ratings_count"),
+            "metacritic": game_data.get("metacritic"),
+            "playtime": game_data.get("playtime"),
+            "genres": game_data.get("genres", []),
+            "platforms": [p["platform"] for p in game_data.get("platforms", [])],
+            "stores": [s["store"] for s in game_data.get("stores", [])],
+            "tags": game_data.get("tags", []),
+        }
+        game_schema = schemas.GameCreate(**game_create_data)
+
         game = crud.get_game_by_slug(db, slug=game_data["slug"])
         if not game:
-            game_schema = schemas.GameCreate(**game_data)
             crud.create_game(db, game=game_schema)
             games_created += 1
         else:
-            # Here you would implement the logic to update an existing game.
-            # For now, we'll just count it as an update.
+            crud.update_game(db, db_game=game, game_update=game_schema)
             games_updated += 1
     db.close()
 
-    print(f"Created {games_created} new games and found {games_updated} existing games to update.")
+    print(f"Created {games_created} new games and updated {games_updated} existing games.")
     return {
         "status": "success",
         "games_fetched": games_fetched,
