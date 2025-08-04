@@ -82,3 +82,33 @@ This script will prompt you to enter an email and password for the new admin use
 
 The project is organized based on the `cookiecutter-data-science` template. Service-specific code is located under the `src/` directory.
 ... (rest of the structure remains the same)
+
+## Project To-Do List / Roadmap
+
+1.  **Complete Data Ingestion and Storage:**
+    -   Full Data Parsing: Update the Celery tasks to parse the entire RAWG API response for each game and save all the data to the new database tables (platforms, stores, tags, etc.).
+    -   Historical Data Backfill: Create a script or a set of Celery tasks to fetch and save the data for all relevant past years (e.g., 1980-present).
+    -   Scheduled Tasks: Configure Celery Beat to run the fetch_monthly_updates_task and fetch_weekly_updates_task on a regular schedule.
+2.  **Enhance the Backend API:**
+    -   Advanced Filtering: Improve the /api/games endpoint to allow filtering by genre, platform, rating, etc.
+    -   Sorting: Add sorting options to the /api/games endpoint (e.g., by release date, rating).
+    -   User-specific Endpoints: Create endpoints for users to manage their profiles, view their favorite games, etc.
+    -   API for Visualizations: Create dedicated endpoints to provide aggregated data for the charts and graphs on the frontend dashboard.
+3.  **Build out the Frontend Dashboard:**
+    -   Game Detail Page: Create a detailed view for each game, showing all its information (screenshots, platforms, stores, tags, etc.).
+    -   Advanced Filtering UI: Add UI elements (dropdowns, sliders) to the frontend to allow users to use the advanced API filtering.
+    -   Data Visualizations: Create interactive charts and graphs to visualize game data (e.g., number of games released per year, average rating by genre).
+    -   User Profile Page: Create a page where users can view and edit their profile information.
+4.  **Implement User Features:**
+    -   User Registration: Add a registration form to the Streamlit app.
+    -   "Favorite" Games: Allow users to mark games as favorites and view their list of favorite games.
+5.  **Machine Learning Models:**
+    -   Data Preparation: Create data pipelines to prepare the collected data for machine learning.
+    -   Model Training: Train the initial machine learning models (e.g., to predict game ratings).
+    -   **MLFlow Integration**: Integrate MLFlow to track experiments, log models, and manage the ML lifecycle.
+    -   Model Serving: Create API endpoints to serve predictions from the trained models.
+    -   Display Predictions: Integrate the model predictions into the frontend dashboard.
+6.  **Production-Readiness:**
+    -   Comprehensive Testing: Add more unit and integration tests for the backend and frontend.
+    -   CI/CD: Set up a Continuous Integration/Continuous Deployment pipeline to automate testing and deployment.
+    -   Security Hardening: Secure all endpoints, add more robust error handling, and manage secrets more securely (e.g., with a secrets manager).
