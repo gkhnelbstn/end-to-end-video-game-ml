@@ -103,6 +103,57 @@ def create_game(db: Session, game: schemas.GameCreate):
     return db_game
 
 
+def get_user_by_email(db: Session, email: str):
+    """
+    Gets a user by their email address.
+    """
+    return db.query(models.User).filter(models.User.email == email).first()
+
+
+def add_favorite_game(db: Session, user: models.User, game: models.Game):
+    """
+    Adds a game to a user's list of favorite games.
+    """
+    user.favorite_games.append(game)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def remove_favorite_game(db: Session, user: models.User, game: models.Game):
+    """
+    Removes a game from a user's list of favorite games.
+    """
+    user.favorite_games.remove(game)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def get_favorite_games(db: Session, user: models.User):
+    """
+    Gets a list of a user's favorite games.
+    """
+    return user.favorite_games
+
+
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+from . import models, schemas
+
+def get_games_per_year(db: Session):
+    """
+    Gets the number of games released per year.
+    """
+    return db.query(func.extract('year', models.Game.released), func.count(models.Game.id)).group_by(func.extract('year', models.Game.released)).all()
+
+def get_average_rating_by_genre(db: Session):
+    """
+    Gets the average rating for each genre.
+    """
+    return db.query(models.Genre.name, func.avg(models.Game.rating)).join(models.Game.genres).group_by(models.Genre.name).all()
+
+
 def update_game(db: Session, db_game: models.Game, game_update: schemas.GameCreate):
     """
     Updates an existing game and its relationships.

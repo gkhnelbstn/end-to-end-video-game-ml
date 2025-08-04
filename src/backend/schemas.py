@@ -95,3 +95,38 @@ class Game(GameBase):
 
     class Config:
         orm_mode = True
+
+
+# --- Schemas for Stats ---
+
+class GamesPerYearStat(BaseModel):
+    year: int
+    count: int
+
+    class Config:
+        orm_mode = True
+
+
+class AvgRatingByGenreStat(BaseModel):
+    genre: str
+    avg_rating: float
+
+    class Config:
+        orm_mode = True
+
+
+class UserBase(BaseModel):
+    email: str
+
+
+class UserCreate(UserBase):
+    password: str
+
+
+class User(UserBase):
+    id: int
+    is_active: bool
+    favorite_games: List[Game] = []
+
+    class Config:
+        orm_mode = True

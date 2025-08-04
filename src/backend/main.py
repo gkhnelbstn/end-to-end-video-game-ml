@@ -81,3 +81,76 @@ def list_genres(db: Session = Depends(get_db)):
     Get a list of all genres.
     """
     return db.query(models.Genre).all()
+
+
+# --- User and Favorites Endpoints ---
+
+# Placeholder for user authentication
+def get_current_user(db: Session = Depends(get_db)):
+    # In a real app, this would be implemented with OAuth2
+    return crud.get_user_by_email(db, email="test@example.com")
+
+
+@app.post("/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
+def add_favorite(
+    user_id: int,
+    game_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Authorization: Ensure the logged-in user can only modify their own favorites
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this user's favorites")
+
+    game = db.query(models.Game).filter(models.Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    return crud.add_favorite_game(db=db, user=current_user, game=game)
+
+
+@app.delete("/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
+def remove_favorite(
+    user_id: int,
+    game_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this user's favorites")
+
+    game = db.query(models.Game).filter(models.Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    return crud.remove_favorite_game(db=db, user=current_user, game=game)
+
+
+@app.get("/users/{user_id}/favorites", response_model=List[schemas.Game])
+def get_favorites(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this user's favorites")
+
+    return crud.get_favorite_games(db=db, user=current_user)
+
+
+# --- Stats Endpoints ---
+
+@app.get("/api/stats/games-per-year")
+def get_games_per_year(db: Session = Depends(get_db)):
+    """
+    Get the number of games released per year.
+    """
+    return crud.get_games_per_year(db)
+
+
+@app.get("/api/stats/avg-rating-by-genre")
+def get_avg_rating_by_genre(db: Session = Depends(get_db)):
+    """
+    Get the average rating for each genre.
+    """
+    return crud.get_average_rating_by_genre(db)
