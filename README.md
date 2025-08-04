@@ -89,7 +89,7 @@ The project is organized based on the `cookiecutter-data-science` template. Serv
     -   Full Data Parsing: Update the Celery tasks to parse the entire RAWG API response for each game and save all the data to the new database tables (platforms, stores, tags, etc.).
     -   Historical Data Backfill: Create a script or a set of Celery tasks to fetch and save the data for all relevant past years (e.g., 1980-present).
     -   Scheduled Tasks: Configure Celery Beat to run the fetch_monthly_updates_task and fetch_weekly_updates_task on a regular schedule.
-2.  **Enhance the Backend API:**
+2.  **Enhance the Backend API:** (Completed)
     -   Advanced Filtering: Improve the /api/games endpoint to allow filtering by genre, platform, rating, etc.
     -   Sorting: Add sorting options to the /api/games endpoint (e.g., by release date, rating).
     -   User-specific Endpoints: Create endpoints for users to manage their profiles, view their favorite games, etc.
