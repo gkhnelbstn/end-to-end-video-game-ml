@@ -2,7 +2,7 @@
 Main Streamlit application for the Game Insight project dashboard.
 """
 import streamlit as st
-import requests
+import httpx
 import pandas as pd
 
 # The backend service is available at this DNS name within the Docker network.
@@ -17,8 +17,9 @@ st.title("🎮 Game Insight Project")
 search_query = st.text_input("Search for a game", "")
 
 if search_query:
-    response = requests.get(f"{BACKEND_URL}/api/games", params={"search": search_query})
-    if response.status_code == 200:
+    try:
+        response = httpx.get(f"{BACKEND_URL}/api/games", params={"search": search_query})
+        response.raise_for_status()
         games = response.json()
         if games:
             game_names = [game["name"] for game in games]
@@ -39,17 +40,21 @@ if search_query:
 
         else:
             st.warning("No games found for your search query.")
-    else:
-        st.error("Failed to fetch games from the backend.")
+    except httpx.HTTPError as e:
+        st.error(f"Failed to fetch games from the backend: {e}")
+    except httpx.RequestError as e:
+        st.error(f"An error occurred while requesting games: {e}")
+
 
 # --- Health Check ---
 with st.expander("System Status"):
     st.write(f"Attempting to connect to the backend API at `{BACKEND_URL}`...")
     try:
-        response = requests.get(f"{BACKEND_URL}/health")
-        if response.status_code == 200 and response.json().get("status") == "ok":
+        response = httpx.get(f"{BACKEND_URL}/health")
+        response.raise_for_status()
+        if response.json().get("status") == "ok":
             st.success("✅ Backend API is running and healthy!")
         else:
             st.error("❌ Backend API is not responding correctly.")
-    except requests.exceptions.ConnectionError:
+    except httpx.RequestError:
         st.error(f"❌ Failed to connect to the backend API.")
