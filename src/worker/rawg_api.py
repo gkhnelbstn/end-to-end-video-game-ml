@@ -1,12 +1,9 @@
 """
-A module for interacting with the RAWG.io API.
-
-This module provides functions to fetch data about video games from the
-RAWG API. It handles API key authentication, request retries, and pagination.
+An asynchronous module for interacting with the RAWG.io API using httpx.
 """
 import os
-import time
-import requests
+import asyncio
+import httpx
 import calendar
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
@@ -15,59 +12,45 @@ BASE_URL = "https://api.rawg.io/api/games"
 API_KEY = os.environ.get("RAWG_API_KEY")
 
 
-def make_request(
-    url: str, params: Dict[str, Any], retries: int = 5, backoff_factor: float = 1.0
-) -> Optional[requests.Response]:
+async def make_request(
+    client: httpx.AsyncClient,
+    url: str,
+    params: Dict[str, Any],
+    retries: int = 5,
+    backoff_factor: float = 1.0,
+) -> Optional[httpx.Response]:
     """
-    Makes a GET request to the given URL with retries.
-
-    Args:
-        url: The URL to make the request to.
-        params: A dictionary of query parameters.
-        retries: The maximum number of retries.
-        backoff_factor: The factor to use for exponential backoff.
-
-    Returns:
-        A requests.Response object if successful, None otherwise.
+    Makes an asynchronous GET request to the given URL with retries.
     """
     for i in range(retries):
         try:
-            response = requests.get(url, params=params)
+            response = await client.get(url, params=params)
             response.raise_for_status()
             return response
-        except requests.exceptions.HTTPError as http_err:
-            if response.status_code == 404:
-                print(f"404 Error: {response.json().get('detail', 'Not Found')}. No more pages available.")
+        except httpx.HTTPStatusError as http_err:
+            if http_err.response.status_code == 404:
+                print(f"404 Error: Not Found. No more pages available.")
                 return None
-            elif response.status_code == 502:
-                print(f"502 Server Error: {http_err}. Retrying in {backoff_factor * (2 ** i)} seconds...")
-                time.sleep(backoff_factor * (2 ** i))
+            elif http_err.response.status_code == 502:
+                print(f"502 Server Error. Retrying in {backoff_factor * (2 ** i)} seconds...")
+                await asyncio.sleep(backoff_factor * (2 ** i))
             else:
                 print(f"HTTP error occurred: {http_err}")
-        except requests.exceptions.RequestException as e:
+        except httpx.RequestError as e:
             print(f"Request failed: {e}. Retrying in {backoff_factor * (2 ** i)} seconds...")
-            time.sleep(backoff_factor * (2 ** i))
+            await asyncio.sleep(backoff_factor * (2 ** i))
     print("Maximum retries exceeded for current request.")
     return None
 
 
-def fetch_games_for_month(year: int, month: int) -> List[Dict[str, Any]]:
+async def fetch_games_for_month(year: int, month: int) -> List[Dict[str, Any]]:
     """
-    Fetches all games released in a specific month from the RAWG API.
-
-    Args:
-        year: The year to fetch games for.
-        month: The month to fetch games for (1-12).
-
-    Returns:
-        A list of dictionaries, where each dictionary represents a game.
+    Fetches all games released in a specific month from the RAWG API asynchronously.
     """
     if not API_KEY:
         raise ValueError("RAWG_API_KEY environment variable not set.")
 
-    # Get the number of days in the given month and year
     _, num_days = calendar.monthrange(year, month)
-
     start_date = f"{year}-{month:02d}-01"
     end_date = f"{year}-{month:02d}-{num_days}"
 
@@ -79,31 +62,26 @@ def fetch_games_for_month(year: int, month: int) -> List[Dict[str, Any]]:
     }
 
     all_games = []
-    while True:
-        response = make_request(url=BASE_URL, params=params)
-        if response is None:
-            break
+    async with httpx.AsyncClient() as client:
+        while True:
+            response = await make_request(client, url=BASE_URL, params=params)
+            if response is None:
+                break
 
-        data = response.json()
-        all_games.extend(data.get("results", []))
+            data = response.json()
+            all_games.extend(data.get("results", []))
 
-        if "next" in data and data["next"]:
-            params["page"] += 1
-        else:
-            break
+            if "next" in data and data["next"]:
+                params["page"] += 1
+            else:
+                break
 
     return all_games
 
 
-def fetch_recently_updated_games(days: int = 7) -> List[Dict[str, Any]]:
+async def fetch_recently_updated_games(days: int = 7) -> List[Dict[str, Any]]:
     """
-    Fetches all games updated in the last `days` from the RAWG API.
-
-    Args:
-        days: The number of days to look back for updates.
-
-    Returns:
-        A list of dictionaries, where each dictionary represents a game.
+    Fetches all games updated in the last `days` from the RAWG API asynchronously.
     """
     if not API_KEY:
         raise ValueError("RAWG_API_KEY environment variable not set.")
@@ -119,17 +97,18 @@ def fetch_recently_updated_games(days: int = 7) -> List[Dict[str, Any]]:
     }
 
     all_games = []
-    while True:
-        response = make_request(url=BASE_URL, params=params)
-        if response is None:
-            break
+    async with httpx.AsyncClient() as client:
+        while True:
+            response = await make_request(client, url=BASE_URL, params=params)
+            if response is None:
+                break
 
-        data = response.json()
-        all_games.extend(data.get("results", []))
+            data = response.json()
+            all_games.extend(data.get("results", []))
 
-        if "next" in data and data["next"]:
-            params["page"] += 1
-        else:
-            break
+            if "next" in data and data["next"]:
+                params["page"] += 1
+            else:
+                break
 
     return all_games
