@@ -23,13 +23,13 @@ This project utilizes the following technologies and libraries:
     -   **System:** PostgreSQL 17
 -   **Task Queue & Scheduling:**
     -   **Task Manager:** Celery
-    -   **Message Broker:** Redis
+    -   **Monitoring:** Flower
+-   **Logging & Monitoring:**
+    -   **Log Aggregation:** Fluentd
 -   **Containerization:**
     -   **Platform:** Docker & Docker Compose
 -   **Testing:**
     -   **Framework:** Pytest
--   **Project Template:**
-    -   [Cookiecutter Data Science](https://github.com/drivendata/cookiecutter-data-science)
 
 ## Getting Started
 
@@ -38,7 +38,7 @@ To run this project locally, you need to have Docker and Docker Compose installe
 1.  **Clone the repository:**
     ```bash
     git clone <repository-url>
-    cd game-insight-project
+    cd <repository-name>
     ```
 
 2.  **Start the services using Docker Compose:**
@@ -46,39 +46,25 @@ To run this project locally, you need to have Docker and Docker Compose installe
     docker compose up --build -d
     ```
 
-This command will build the images and start all services (Backend, Frontend, Database, Redis, Worker, Scheduler) in detached mode.
--   **Backend API:** [http://localhost:8000](http://localhost:8000)
--   **Frontend Dashboard:** [http://localhost:8501](http://localhost:8501)
+This command will build the images and start all services in detached mode.
+-   **Backend API:** `http://localhost:8000`
+-   **Frontend Dashboard:** `http://localhost:8501`
+-   **Celery Monitoring (Flower):** `http://localhost:5555`
+
+## Logging
+
+All services are configured to send their logs to a central Fluentd container. The logs are stored in the `./logs` directory on the host machine.
+
+## Database Schema
+
+The database schema is defined using SQLAlchemy in `src/backend/models.py`. It includes the following main tables:
+-   `games`: Stores the core information about each game.
+-   `genres`, `platforms`, `stores`, `tags`: Look-up tables for related game data.
+-   `users`: Stores user account information.
+
+The relationships between these tables are managed through association tables.
 
 ## Project Structure
 
 The project is organized based on the `cookiecutter-data-science` template. Service-specific code is located under the `src/` directory.
-
-    ├── LICENSE
-    ├── Makefile           <- Makefile with common commands.
-    ├── README.md          <- This file.
-    ├── docker-compose.yml <- Docker Compose file for managing services.
-    ├── requirements.txt   <- Main project dependencies (for uv).
-    ├── setup.py           <- Makes the project pip-installable.
-    ├── src                <- Main source code for the project.
-    │   ├── __init__.py
-    │   │
-    │   ├── backend        <- FastAPI application, API endpoints, and Celery configuration.
-    │   │   ├── Dockerfile
-    │   │   ├── requirements.txt
-    │   │   └── main.py
-    │   │
-    │   ├── frontend       <- Streamlit dashboard application.
-    │   │   ├── Dockerfile
-    │   │   ├── requirements.txt
-    │   │   └── app.py
-    │   │
-    │   └── worker         <- Celery tasks for periodic data ingestion.
-    │       └── tasks.py
-    │
-    ├── tests              <- Pytest tests for the application.
-    └── ... (other cookiecutter directories)
-
---------
-
-<p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
+... (rest of the structure remains the same)

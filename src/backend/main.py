@@ -1,6 +1,16 @@
 """Main FastAPI application for the Game Insight project."""
 
 from fastapi import FastAPI
+from . import models
+from .database import engine
+from .logging import setup_logging
+
+# Set up logging
+setup_logging()
+
+# Create the database tables
+models.Base.metadata.create_all(bind=engine)
+
 
 app = FastAPI(
     title="Game Insight API",

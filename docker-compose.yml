@@ -25,6 +25,16 @@ services:
       timeout: 5s
       retries: 5
 
+  fluentd:
+    image: fluent/fluentd:v1.16-1
+    container_name: game-insight-fluentd
+    volumes:
+      - ./fluentd:/fluentd/etc
+      - ./logs:/fluentd/log
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+
   backend:
     build:
       context: .
@@ -40,17 +50,40 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      fluentd:
+        condition: service_started
+    env_file:
+      - ./.env
     environment:
       - PYTHONPATH=/app
-      - DATABASE_URL=postgresql://user:password@db:5432/game_insight_db
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
+
+  flower:
+    build:
+      context: .
+      dockerfile: ./src/backend/Dockerfile
+    container_name: game-insight-flower
+    command: celery -A src.backend.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+      fluentd:
+        condition: service_started
+    env_file:
+      - ./.env
+    environment:
+      - PYTHONPATH=/app
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
 
   frontend:
     build:
@@ -63,6 +96,12 @@ services:
       - ./src:/app/src
     depends_on:
       - backend
+      - fluentd
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
 
   worker:
     build:
@@ -77,8 +116,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      fluentd:
+        condition: service_started
+    env_file:
+      - ./.env
     environment:
       - PYTHONPATH=/app
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
 
   scheduler:
     build:
@@ -93,8 +141,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      fluentd:
+        condition: service_started
+    env_file:
+      - ./.env
     environment:
       - PYTHONPATH=/app
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
 
   test:
     build:
@@ -104,10 +161,17 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      fluentd:
+        condition: service_started
     environment:
       - PYTHONPATH=/app
       - BACKEND_BASE_URL=http://backend:8000
     command: ["pytest", "/app/tests"]
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
 
 volumes:
   postgres_data:

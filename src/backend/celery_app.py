@@ -10,10 +10,20 @@ list.
 """
 import os
 from celery import Celery
+from celery.signals import setup_logging as setup_celery_logging
 from dotenv import load_dotenv
+from .logging import setup_logging
 
 # Load environment variables from a .env file, if it exists.
 load_dotenv()
+
+@setup_celery_logging.connect
+def setup_celery_logger(**kwargs):
+    """
+    Set up structured logging for Celery workers.
+    """
+    setup_logging()
+
 
 celery_app = Celery(
     "tasks",
