@@ -103,6 +103,40 @@ def create_game(db: Session, game: schemas.GameCreate):
     return db_game
 
 
+def get_user_by_email(db: Session, email: str):
+    """
+    Gets a user by their email address.
+    """
+    return db.query(models.User).filter(models.User.email == email).first()
+
+
+def add_favorite_game(db: Session, user: models.User, game: models.Game):
+    """
+    Adds a game to a user's list of favorite games.
+    """
+    user.favorite_games.append(game)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def remove_favorite_game(db: Session, user: models.User, game: models.Game):
+    """
+    Removes a game from a user's list of favorite games.
+    """
+    user.favorite_games.remove(game)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def get_favorite_games(db: Session, user: models.User):
+    """
+    Gets a list of a user's favorite games.
+    """
+    return user.favorite_games
+
+
 def update_game(db: Session, db_game: models.Game, game_update: schemas.GameCreate):
     """
     Updates an existing game and its relationships.

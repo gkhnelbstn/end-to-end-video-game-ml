@@ -27,6 +27,8 @@ app.dependency_overrides[get_db] = override_get_db
 client = TestClient(app)
 
 # --- Sample Data ---
+from src.backend.main import get_current_user
+
 @pytest.fixture(scope="module")
 def test_db():
     Base.metadata.create_all(bind=engine)
@@ -53,11 +55,18 @@ def test_db():
     game3.genres.append(action_genre)
     game3.platforms.append(ps5_platform)
 
-    db.add_all([action_genre, rpg_genre, pc_platform, ps5_platform, game1, game2, game3])
+    # Create a test user
+    test_user = models.User(id=1, email="test@example.com", hashed_password="password", is_active=True)
+
+    db.add_all([action_genre, rpg_genre, pc_platform, ps5_platform, game1, game2, game3, test_user])
     db.commit()
+
+    # Mock the get_current_user dependency
+    app.dependency_overrides[get_current_user] = lambda: test_user
 
     yield db
     Base.metadata.drop_all(bind=engine)
+    app.dependency_overrides = {}
 
 # --- Tests ---
 def test_list_games_no_filters(test_db):
@@ -97,3 +106,29 @@ def test_sort_by_released_asc(test_db):
     assert response.status_code == 200
     data = response.json()
     assert [g["name"] for g in data] == ["Game B", "Game A", "Game C"]
+
+def test_add_favorite_game(test_db):
+    response = client.post("/users/1/favorites/1")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["favorite_games"]) == 1
+    assert data["favorite_games"][0]["name"] == "Game A"
+
+def test_get_favorite_games(test_db):
+    # Add a favorite first
+    client.post("/users/1/favorites/2")
+
+    response = client.get("/users/1/favorites")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) > 0
+    assert "Game B" in [g["name"] for g in data]
+
+def test_remove_favorite_game(test_db):
+    # Add a favorite first
+    client.post("/users/1/favorites/3")
+
+    response = client.delete("/users/1/favorites/3")
+    assert response.status_code == 200
+    data = response.json()
+    assert "Game C" not in [g["name"] for g in data["favorite_games"]]

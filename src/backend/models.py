@@ -52,6 +52,13 @@ game_tags = Table(
     Column("tag_id", Integer, ForeignKey("tags.id"), primary_key=True),
 )
 
+user_favorite_games = Table(
+    "user_favorite_games",
+    Base.metadata,
+    Column("user_id", Integer, ForeignKey("users.id"), primary_key=True),
+    Column("game_id", Integer, ForeignKey("games.id"), primary_key=True),
+)
+
 
 # --- Main 'games' Table ---
 
@@ -74,9 +81,10 @@ class Game(Base):
 
     # Relationships
     genres = relationship("Genre", secondary=game_genres, back_populates="games")
-    platforms = relationship("Platform", secondary=game_platforms, back_populates="games")
+    platforms = relationship("Platform", secondary=game_platforms, back_pop_ulates="games")
     stores = relationship("Store", secondary=game_stores, back_populates="games")
     tags = relationship("Tag", secondary=game_tags, back_populates="games")
+    favorited_by = relationship("User", secondary=user_favorite_games, back_populates="favorite_games")
 
 
 # --- Look-up Tables ---
@@ -134,3 +142,6 @@ class User(Base):
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
+
+    # Relationships
+    favorite_games = relationship("Game", secondary=user_favorite_games, back_populates="favorited_by")
