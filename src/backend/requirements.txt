@@ -8,3 +8,5 @@ SQLAlchemy
 pytest
 httpx
 requests
+flower
+python-json-logger
