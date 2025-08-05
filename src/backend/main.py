@@ -1,35 +1,34 @@
 """Main FastAPI application for the Game Insight project."""
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
-
-# Import project modules
 from . import models, schemas, crud
-from .database import engine, get_db, SessionLocal
+from .database import engine, get_db
 from .logging import setup_logging
-from .models import AdminUser
-from .security import get_password_hash
+from .admin import create_admin, setup_admin_views
+from src.backend.models import AdminUser
+from src.backend.database import SessionLocal
+from passlib.context import CryptContext
 
 # Set up logging
 setup_logging()
 
-
-# Create the database tables.
-# This should be idempotent, so it's safe to run on every startup.
+# Create the database tables
 models.Base.metadata.create_all(bind=engine)
 
-
+# View'leri oluştur (tablolar oluşturulduktan sonra)
 def create_views():
-    """Create or update the database views from the SQL file."""
     try:
-        with open("src/backend/views.sql", "r") as f:
-            sql_script = f.read()
-        if sql_script.strip():
+        with open('src/backend/views.sql', 'r') as f:
+            sql = f.read()
+        if sql.strip():
             db = SessionLocal()
             try:
-                db.execute(text(sql_script))
+                db.execute(text(sql))
                 db.commit()
                 print("✅ Views created successfully.")
             except Exception as e:
@@ -42,51 +41,34 @@ def create_views():
     except Exception as e:
         print(f"⚠️  Unexpected error reading views.sql: {e}")
 
-
-def create_first_admin():
-    """Create the first admin user if one does not already exist."""
-    db = SessionLocal()
-    try:
-        # Check if an admin user already exists
-        if not db.query(AdminUser).first():
-            hashed_password = get_password_hash("adminpass")
-            admin = AdminUser(
-                username="admin",
-                hashed_password=hashed_password,
-                is_active=True,
-            )
-            db.add(admin)
-            db.commit()
-            print("✅ First admin user created: username=admin, password=adminpass")
-    finally:
-        db.close()
-
-
 app = FastAPI(
     title="Game Insight API",
     description="API for collecting and serving video game data.",
     version="0.1.0",
 )
 
+# Session middleware admin paneli için gerekli
+app.add_middleware(
+    SessionMiddleware,
+    secret_key="your-secret-key-change-this"  # Production'da güvenli bir key kullanın
+)
 
-
+# Static files için (opsiyonel - logo vs. için)
+# app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "ok"}
 
-
-
+# Admin'i oluştur ve konfigüre et
+admin = create_admin(app)
+setup_admin_views(admin)
 
 @app.get("/")
 def read_root() -> dict[str, str]:
     """Root endpoint for the API."""
     return {"message": "Welcome to the Game Insight API!"}
-
-
-
-
 
 # --- API Endpoints for Frontend ---
 
@@ -117,7 +99,6 @@ def list_games(
         limit=limit,
     )
 
-
 @app.get("/api/games/{game_id}", response_model=schemas.Game)
 def get_game_details(game_id: int, db: Session = Depends(get_db)):
     """
@@ -125,14 +106,12 @@ def get_game_details(game_id: int, db: Session = Depends(get_db)):
     """
     return db.query(models.Game).filter(models.Game.id == game_id).first()
 
-
 @app.get("/api/genres", response_model=List[schemas.Genre])
 def list_genres(db: Session = Depends(get_db)):
     """
     Get a list of all genres.
     """
     return db.query(models.Genre).all()
-
 
 from fastapi import HTTPException
 
@@ -145,12 +124,10 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Email already registered")
     return crud.create_user(db=db, user=user)
 
-
 # Placeholder for user authentication
 def get_current_user(db: Session = Depends(get_db)):
     # In a real app, this would be implemented with OAuth2
     return crud.get_user_by_email(db, email="test@example.com")
-
 
 @app.post("/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
 def add_favorite(
@@ -169,7 +146,6 @@ def add_favorite(
 
     return crud.add_favorite_game(db=db, user=current_user, game=game)
 
-
 @app.delete("/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
 def remove_favorite(
     user_id: int,
@@ -186,7 +162,6 @@ def remove_favorite(
 
     return crud.remove_favorite_game(db=db, user=current_user, game=game)
 
-
 @app.get("/users/{user_id}/favorites", response_model=List[schemas.Game])
 def get_favorites(
     user_id: int,
@@ -194,10 +169,9 @@ def get_favorites(
     current_user: models.User = Depends(get_current_user),
 ):
     if current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to view this user's favorites")
+        raise HTTPException(status_code=403, detail="Not authorized to modify this user's favorites")
 
     return crud.get_favorite_games(db=db, user=current_user)
-
 
 # --- Stats Endpoints ---
 
@@ -208,7 +182,6 @@ def get_games_per_year(db: Session = Depends(get_db)):
     """
     return crud.get_games_per_year(db)
 
-
 @app.get("/api/stats/avg-rating-by-genre")
 def get_avg_rating_by_genre(db: Session = Depends(get_db)):
     """
@@ -216,30 +189,28 @@ def get_avg_rating_by_genre(db: Session = Depends(get_db)):
     """
     return crud.get_average_rating_by_genre(db)
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# FastAPI-Admin setup
-import redis.asyncio as redis
-from fastapi_admin.app import app as admin_app
-from fastapi_admin.providers.login import UsernamePasswordProvider
-from .models import AdminUser
+def create_first_admin():
+    db = SessionLocal()
+    try:
+        # Kullanıcı zaten varsa oluşturmayalım
+        if not db.query(AdminUser).filter(AdminUser.username == "admin").first():
+            admin_user = AdminUser(
+                username="admin",
+                hashed_password=pwd_context.hash("adminpass"),  # Production'da değiştirin
+                is_active=True
+            )
+            db.add(admin_user)
+            db.commit()
+            print("✅ First admin user created: username=admin, password=adminpass")
+    except Exception as e:
+        print(f"❌ Error creating admin user: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 @app.on_event("startup")
-async def startup():
-    """Run startup tasks."""
+def on_startup():
     create_views()
     create_first_admin()
-
-    # Initialize fastapi-admin
-    r = redis.from_url("redis://redis:6379", encoding="utf8", decode_responses=True)
-    await admin_app.configure(
-        logo_url="https://preview.tabler.io/static/logo-white.svg",
-        template_folders=["templates"],
-        redis=r,
-        providers=[
-            UsernamePasswordProvider(
-                login_logo_url="https://preview.tabler.io/static/logo.svg",
-                admin_model=AdminUser,
-            )
-        ],
-    )
-    app.mount("/admin", admin_app)
