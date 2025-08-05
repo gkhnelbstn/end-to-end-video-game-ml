@@ -8,6 +8,12 @@ ENV PYTHONUNBUFFERED 1
 # Set the working directory in the container
 WORKDIR /app
 
+RUN apt update && \
+    apt install -y --no-install-recommends \
+        curl && \
+    apt clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Install uv
 RUN pip install uv
 
