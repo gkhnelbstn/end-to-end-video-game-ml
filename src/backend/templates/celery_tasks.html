@@ -1,0 +1,83 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1>{{ admin.title }} - Celery Tasks</h1>
+
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Tasks</h3>
+                </div>
+                <div class="card-body">
+                    <table class="table table-bordered table-striped">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Status</th>
+                                <th>Worker</th>
+                                <th>Type</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for task_info in tasks %}
+                            <tr>
+                                <td>{{ task_info.task.id or task_info.task.request.id }}</td>
+                                <td>{{ task_info.task.name or task_info.task.request.name }}</td>
+                                <td>
+                                    {% if task_info.result %}
+                                        <span class="badge bg-{% if task_info.result.status == 'SUCCESS' %}success{% elif task_info.result.status == 'FAILURE' %}danger{% else %}warning{% endif %}">
+                                            {{ task_info.result.status }}
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ task_info.type }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ task_info.worker }}</td>
+                                <td><span class="badge bg-info">{{ task_info.type }}</span></td>
+                                <td>
+                                    {% if task_info.type in ['Active', 'Reserved', 'Scheduled'] %}
+                                    <button class="btn btn-danger btn-sm" onclick="revokeTask('{{ task_info.task.id }}')">
+                                        Revoke
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function revokeTask(taskId) {
+        if (confirm('Are you sure you want to revoke this task?')) {
+            fetch(`/admin/tasks/revoke/${taskId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'OK') {
+                    alert('Task revoked successfully.');
+                    location.reload();
+                } else {
+                    alert('Error revoking task: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while revoking the task.');
+            });
+        }
+    }
+</script>
+{% endblock %}

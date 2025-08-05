@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from .database import engine, SessionLocal
 from .models import Game, Platform, Genre, Store, Tag, AdminUser, User
+from .celery_app import celery_app
+from .celery_admin import CeleryTaskView
+
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -52,7 +55,8 @@ def create_admin(app):
         app=app,
         engine=engine,
         authentication_backend=authentication_backend,
-        title="Game Insight Admin"
+        title="Game Insight Admin",
+        templates_dir="src/backend/templates",
     )
     return admin
 
@@ -146,4 +150,5 @@ def setup_admin_views(admin):
     admin.add_view(TagAdmin)
     admin.add_view(UserAdmin)
     admin.add_view(AdminUserAdmin)
+    admin.add_view(CeleryTaskView)
     return admin
