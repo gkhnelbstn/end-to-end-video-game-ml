@@ -25,6 +25,7 @@ services:
       timeout: 5s
       retries: 5
 
+
   fluentd:
     image: fluent/fluentd:v1.16-1
     container_name: game-insight-fluentd
@@ -90,6 +91,21 @@ services:
       options:
         fluentd-address: localhost:24224
         tag: docker.{{.Name}}
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: ./src/backend/Dockerfile
+    container_name: game-insight-celery-beat
+    command: >
+      celery -A src.backend.celery_app beat 
+      --loglevel=INFO 
+      --scheduler redbeat.RedBeatScheduler
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - db
 
   frontend:
     build:

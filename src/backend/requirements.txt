@@ -12,9 +12,11 @@ python-dotenv==1.0.1
 celery==5.4.0
 redis==5.0.4
 flower==2.0.1
+celery-redbeat
+asyncio
 
 # Admin paneli - SQLAdmin (Python 3.12 uyumlu)
-sqladmin==0.18.0
+sqladmin[full]
 
 # Authentication ve security
 passlib[bcrypt]==1.7.4
