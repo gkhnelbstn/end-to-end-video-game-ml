@@ -31,6 +31,6 @@ class CeleryTaskView(BaseView):
             for task in reserved_tasks:
                 tasks.append({"type": "Reserved", "worker": worker, "task": task})
 
-        return await self.templates.render(
+        return self.templates.TemplateResponse(
             request, self.template, context={"tasks": tasks}
         )
