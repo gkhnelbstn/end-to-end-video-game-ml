@@ -35,7 +35,7 @@ class CeleryTaskView(BaseView):
             request, self.template, context={"tasks": tasks}
         )
 
-    @expose("/tasks/revoke/{task_id}", methods=["POST"])
+    @expose("/tasks/revoke/{task_id}", methods=["POST"], in_menu=False)
     async def revoke_task(self, request: Request):
         task_id = request.path_params["task_id"]
         celery_app.control.revoke(task_id, terminate=True)
