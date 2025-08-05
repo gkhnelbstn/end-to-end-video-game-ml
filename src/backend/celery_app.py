@@ -38,13 +38,13 @@ celery_app.conf.update(
 
 from celery.schedules import crontab
 
-celery_app.conf.beat_schedule = {
-    'fetch-monthly-updates': {
-        'task': 'src.worker.tasks.fetch_monthly_updates_task',
-        'schedule': crontab(day_of_month='1', hour=0, minute=0),
-    },
-    'fetch-weekly-updates': {
-        'task': 'src.worker.tasks.fetch_weekly_updates_task',
-        'schedule': crontab(day_of_week='monday', hour=0, minute=0),
-    },
-}
+# celery_app.conf.beat_schedule = {
+#     'fetch-monthly-updates': {
+#         'task': 'src.worker.tasks.fetch_monthly_updates_task',
+#         'schedule': crontab(day_of_month='1', hour=0, minute=0),
+#     },
+#     'fetch-weekly-updates': {
+#         'task': 'src.worker.tasks.fetch_weekly_updates_task',
+#         'schedule': crontab(day_of_week='monday', hour=0, minute=0),
+#     },
+# }
