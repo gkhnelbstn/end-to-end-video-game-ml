@@ -10,8 +10,9 @@ python-dotenv==1.0.1
 
 # Arka plan görevleri
 celery==5.4.0
-redis==5.0.3
+redis==5.0.4
 flower==1.2.0
+aioredis==2.0.1
 
 # Admin paneli
 fastapi-admin
