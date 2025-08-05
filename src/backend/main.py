@@ -1,32 +1,35 @@
 """Main FastAPI application for the Game Insight project."""
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
+
+# Import project modules
 from . import models, schemas, crud
-from .database import engine, get_db
+from .database import engine, get_db, SessionLocal
 from .logging import setup_logging
-from .admin import admin  # yukarıdaki admin_app
-from src.backend.models import AdminUser
-from src.backend.database import SessionLocal
-from passlib.context import CryptContext
+from .models import AdminUser
+from .security import get_password_hash
 
 # Set up logging
 setup_logging()
 
-# Create the database tables
+
+# Create the database tables.
+# This should be idempotent, so it's safe to run on every startup.
 models.Base.metadata.create_all(bind=engine)
 
-# View'leri oluştur (tablolar oluşturulduktan sonra)
+
 def create_views():
+    """Create or update the database views from the SQL file."""
     try:
-        with open('src/backend/views.sql', 'r') as f:
-            sql = f.read()
-        if sql.strip():
+        with open("src/backend/views.sql", "r") as f:
+            sql_script = f.read()
+        if sql_script.strip():
             db = SessionLocal()
             try:
-                db.execute(text(sql))
+                db.execute(text(sql_script))
                 db.commit()
                 print("✅ Views created successfully.")
             except Exception as e:
@@ -39,19 +42,41 @@ def create_views():
     except Exception as e:
         print(f"⚠️  Unexpected error reading views.sql: {e}")
 
+
+def create_first_admin():
+    """Create the first admin user if one does not already exist."""
+    db = SessionLocal()
+    try:
+        # Check if an admin user already exists
+        if not db.query(AdminUser).first():
+            hashed_password = get_password_hash("adminpass")
+            admin = AdminUser(
+                username="admin",
+                hashed_password=hashed_password,
+                is_active=True,
+            )
+            db.add(admin)
+            db.commit()
+            print("✅ First admin user created: username=admin, password=adminpass")
+    finally:
+        db.close()
+
+
 app = FastAPI(
     title="Game Insight API",
     description="API for collecting and serving video game data.",
     version="0.1.0",
 )
 
+
+
+
 @app.get("/health")
 def health_check() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "ok"}
 
-# Mount the admin app
-app.mount("/admin", admin.app)
+
 
 
 @app.get("/")
@@ -191,26 +216,30 @@ def get_avg_rating_by_genre(db: Session = Depends(get_db)):
     """
     return crud.get_average_rating_by_genre(db)
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")  # ✅ Artık tanımlı
-def create_first_admin():
 
-    db = SessionLocal()
-    try:
-        # Kullanıcı zaten varsa oluşturmayalım
-        if not db.query(AdminUser).filter(AdminUser.username == "admin").first():
-            admin = AdminUser(
-                username="admin",
-                hashed_password=pwd_context.hash("adminpass"),  # Parolayı değiştirebilirsin
-                is_active=True
-            )
-            db.add(admin)
-            db.commit()
-            print("✅ First admin user created: username=admin, password=adminpass")
-    finally:
-        db.close()
+# FastAPI-Admin setup
+import redis.asyncio as redis
+from fastapi_admin.app import app as admin_app
+from fastapi_admin.providers.login import UsernamePasswordProvider
+from .models import AdminUser
 
-# app.on_event("startup") ile çağır
 @app.on_event("startup")
-def on_startup():
+async def startup():
+    """Run startup tasks."""
     create_views()
     create_first_admin()
+
+    # Initialize fastapi-admin
+    r = redis.from_url("redis://redis:6379", encoding="utf8", decode_responses=True)
+    await admin_app.configure(
+        logo_url="https://preview.tabler.io/static/logo-white.svg",
+        template_folders=["templates"],
+        redis=r,
+        providers=[
+            UsernamePasswordProvider(
+                login_logo_url="https://preview.tabler.io/static/logo.svg",
+                admin_model=AdminUser,
+            )
+        ],
+    )
+    app.mount("/admin", admin_app)

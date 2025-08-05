@@ -1,31 +1,35 @@
 # src/backend/admin.py
+from fastapi_admin.app import app as admin_app
+from fastapi_admin.resources import Model
+from .models import AdminUser, Game, Platform
 
-from sqladmin import Admin, ModelView
-from fastapi import FastAPI # ✅ FastAPI'yi import edin
-from .database import engine
-from .models import Game, Platform, AdminUser
+@admin_app.register
+class AdminUserAdmin(Model):
+    resource = AdminUser
+    fields = [
+        "id",
+        "username",
+        "is_active",
+        "created_at",
+    ]
 
-# ✅ Geçici bir FastAPI örneği oluşturun
-# Bu, sqladmin'in doğru çalışmasını sağlar
-_temp_app = FastAPI()
+@admin_app.register
+class GameAdmin(Model):
+    resource = Game
+    fields = [
+        "id",
+        "name",
+        "slug",
+        "released",
+        "rating",
+        "background_image",
+    ]
 
-# Admin nesnesini oluşturun, app parametresini geçici app ile geçirin
-admin = Admin(app=_temp_app, engine=engine)
-
-# Model view'leri tanımlayın
-class GameAdmin(ModelView, model=Game):
-    column_list = [Game.id, Game.name]
-
-class PlatformAdmin(ModelView, model=Platform):
-    column_list = [Platform.id, Platform.name]
-
-class AdminUserAdmin(ModelView, model=AdminUser):
-    column_list = [AdminUser.id, AdminUser.username]
-
-# Admin view'lerini ekleyin
-admin.add_view(GameAdmin)
-admin.add_view(PlatformAdmin)
-admin.add_view(AdminUserAdmin)
-
-# main.py dosyasında şu satırı kullandığınızdan emin olun:
-# app.mount("/admin", admin.app)
+@admin_app.register
+class PlatformAdmin(Model):
+    resource = Platform
+    fields = [
+        "id",
+        "name",
+        "slug",
+    ]

@@ -13,8 +13,8 @@ celery==5.4.0
 redis==5.0.3
 flower==1.2.0
 
-# Admin paneli (fastapi-admin yerine sqladmin)
-sqladmin==0.18.0
+# Admin paneli
+fastapi-admin
 
 # Diğer
 pytest==8.2.2
