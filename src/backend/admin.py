@@ -18,6 +18,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 class AdminAuth(AuthenticationBackend):
     async def login(self, request: Request) -> bool:
         form = await request.form()
+        
+        # Check if required fields exist
+        if "username" not in form or "password" not in form:
+            print("Login error: Missing required fields")
+            return False
+            
         username, password = form["username"], form["password"]
 
         db: Session = SessionLocal()
@@ -30,22 +36,34 @@ class AdminAuth(AuthenticationBackend):
             if admin_user and pwd_context.verify(password, admin_user.hashed_password):
                 # JWT token oluşturabilir veya session kullanabilirsiniz
                 request.session.update({"admin_user": admin_user.username})
+                print("Login successful")
                 return True
+        except Exception as e:
+            print(f"Login error: {e}")
         finally:
             db.close()
 
+        print("Login failed")
         return False
 
     async def logout(self, request: Request) -> bool:
         request.session.clear()
+        print("Logout successful")
         return True
 
     async def authenticate(self, request: Request) -> bool:
-        return request.session.get("admin_user") is not None
+        # Oturum açmış kullanıcı var mı kontrol et
+        admin_user = request.session.get("admin_user", None)
+        if admin_user is not None:
+            print("Authenticated user found")
+            return True
+        else:
+            print("No authenticated user found")
+            return False
 
 
 # Authentication backend'i oluştur
-authentication_backend = AdminAuth(secret_key="your-secret-key-change-this")
+authentication_backend = AdminAuth(secret_key="your-secret-key-change-this-in-production")
 
 
 # Admin interface'i oluşturacak fonksiyon
@@ -56,7 +74,7 @@ def create_admin(app):
         engine=engine,
         authentication_backend=authentication_backend,
         title="Game Insight Admin",
-        templates_dir="src/backend/templates",
+        templates_dir="/app/src/backend/templates",  # Absolute path in Docker container
     )
     return admin
 

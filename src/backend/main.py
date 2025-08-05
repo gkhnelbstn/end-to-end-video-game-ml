@@ -1,19 +1,19 @@
 """Main FastAPI application for the Game Insight project."""
 
-from fastapi import FastAPI, Depends
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, Depends, HTTPException
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
+from passlib.context import CryptContext
+
 from . import models, schemas, crud
-from .database import engine, get_db
+from .database import engine, get_db, SessionLocal
 from .logging import setup_logging
 from .admin import create_admin, setup_admin_views
 from .celery_app import celery_app
-from src.backend.models import AdminUser
-from src.backend.database import SessionLocal
-from passlib.context import CryptContext
+from .celery_admin import CeleryTaskView
+from .models import AdminUser
 
 # Set up logging
 setup_logging()
@@ -21,7 +21,7 @@ setup_logging()
 # Create the database tables
 models.Base.metadata.create_all(bind=engine)
 
-# View'leri oluştur (tablolar oluşturulduktan sonra)
+# Function to create database views after table creation
 def create_views():
     try:
         with open('src/backend/views.sql', 'r') as f:
@@ -33,186 +33,25 @@ def create_views():
                 db.commit()
                 print("✅ Views created successfully.")
             except Exception as e:
-                print(f"⚠️  Error creating views: {e}")
+                print(f"⚠️ Error creating views: {e}")
                 db.rollback()
             finally:
                 db.close()
     except FileNotFoundError:
-        print("⚠️  views.sql file not found. Skipping view creation.")
+        print("⚠️ views.sql file not found. Skipping view creation.")
     except Exception as e:
-        print(f"⚠️  Unexpected error reading views.sql: {e}")
+        print(f"⚠️ Unexpected error reading views.sql: {e}")
 
-app = FastAPI(
-    title="Game Insight API",
-    description="API for collecting and serving video game data.",
-    version="0.1.0",
-)
-
-# Session middleware admin paneli için gerekli
-app.add_middleware(
-    SessionMiddleware,
-    secret_key="your-secret-key-change-this"  # Production'da güvenli bir key kullanın
-)
-
-# Static files için (opsiyonel - logo vs. için)
-# app.mount("/static", StaticFiles(directory="static"), name="static")
-
-@app.get("/health")
-def health_check() -> dict[str, str]:
-    """Health check endpoint."""
-    return {"status": "ok"}
-
-# Admin'i oluştur ve konfigüre et
-admin = create_admin(app)
-setup_admin_views(admin)
-
-@app.get("/")
-def read_root() -> dict[str, str]:
-    """Root endpoint for the API."""
-    return {"message": "Welcome to the Game Insight API!"}
-
-# --- Celery Task Control ---
-
-@app.post("/api/tasks/revoke/{task_id}")
-def revoke_task(task_id: str) -> dict[str, str]:
-    """
-    Revoke a Celery task by its ID.
-    """
-    try:
-        celery_app.control.revoke(task_id, terminate=True)
-        return {"status": "success", "message": f"Task {task_id} revoked."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# --- API Endpoints for Frontend ---
-
-@app.get("/api/games", response_model=List[schemas.Game])
-def list_games(
-    db: Session = Depends(get_db),
-    search: Optional[str] = None,
-    genre: Optional[str] = None,
-    platform: Optional[str] = None,
-    rating: Optional[float] = None,
-    sort_by: Optional[str] = None,
-    sort_order: Optional[str] = "asc",
-    skip: int = 0,
-    limit: int = 100,
-):
-    """
-    List games with optional filtering, sorting, search, and pagination.
-    """
-    return crud.get_games(
-        db=db,
-        search=search,
-        genre=genre,
-        platform=platform,
-        rating=rating,
-        sort_by=sort_by,
-        sort_order=sort_order,
-        skip=skip,
-        limit=limit,
-    )
-
-@app.get("/api/games/{game_id}", response_model=schemas.Game)
-def get_game_details(game_id: int, db: Session = Depends(get_db)):
-    """
-    Get the details for a single game.
-    """
-    return db.query(models.Game).filter(models.Game.id == game_id).first()
-
-@app.get("/api/genres", response_model=List[schemas.Genre])
-def list_genres(db: Session = Depends(get_db)):
-    """
-    Get a list of all genres.
-    """
-    return db.query(models.Genre).all()
-
-from fastapi import HTTPException
-
-# --- User and Favorites Endpoints ---
-
-@app.post("/api/users", response_model=schemas.User)
-def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    db_user = crud.get_user_by_email(db, email=user.email)
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    return crud.create_user(db=db, user=user)
-
-# Placeholder for user authentication
-def get_current_user(db: Session = Depends(get_db)):
-    # In a real app, this would be implemented with OAuth2
-    return crud.get_user_by_email(db, email="test@example.com")
-
-@app.post("/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
-def add_favorite(
-    user_id: int,
-    game_id: int,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    # Authorization: Ensure the logged-in user can only modify their own favorites
-    if current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to modify this user's favorites")
-
-    game = db.query(models.Game).filter(models.Game.id == game_id).first()
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
-
-    return crud.add_favorite_game(db=db, user=current_user, game=game)
-
-@app.delete("/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
-def remove_favorite(
-    user_id: int,
-    game_id: int,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    if current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to modify this user's favorites")
-
-    game = db.query(models.Game).filter(models.Game.id == game_id).first()
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
-
-    return crud.remove_favorite_game(db=db, user=current_user, game=game)
-
-@app.get("/users/{user_id}/favorites", response_model=List[schemas.Game])
-def get_favorites(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    if current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to modify this user's favorites")
-
-    return crud.get_favorite_games(db=db, user=current_user)
-
-# --- Stats Endpoints ---
-
-@app.get("/api/stats/games-per-year")
-def get_games_per_year(db: Session = Depends(get_db)):
-    """
-    Get the number of games released per year.
-    """
-    return crud.get_games_per_year(db)
-
-@app.get("/api/stats/avg-rating-by-genre")
-def get_avg_rating_by_genre(db: Session = Depends(get_db)):
-    """
-    Get the average rating for each genre.
-    """
-    return crud.get_average_rating_by_genre(db)
-
+# Function to create the first admin user
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def create_first_admin():
     db = SessionLocal()
     try:
-        # Kullanıcı zaten varsa oluşturmayalım
         if not db.query(AdminUser).filter(AdminUser.username == "admin").first():
             admin_user = AdminUser(
                 username="admin",
-                hashed_password=pwd_context.hash("adminpass"),  # Production'da değiştirin
+                hashed_password=pwd_context.hash("adminpass"),  # Change in production
                 is_active=True
             )
             db.add(admin_user)
@@ -224,7 +63,145 @@ def create_first_admin():
     finally:
         db.close()
 
+# FastAPI Application
+app = FastAPI(
+    title="Game Insight API",
+    description="API for collecting and serving video game data.",
+    version="0.1.0",
+)
+
+# Session middleware for admin authentication
+app.add_middleware(SessionMiddleware, secret_key="your-secret-key-change-this-in-production")
+
+# Admin panel setup
+admin = create_admin(app)
+setup_admin_views(admin)
+admin.add_view(CeleryTaskView)  # Advanced Celery admin integration
+
+# Startup event to create views and first admin
 @app.on_event("startup")
 def on_startup():
     create_views()
     create_first_admin()
+
+# Health Check Endpoint
+@app.get("/health")
+def health_check() -> dict[str, str]:
+    return {"status": "ok"}
+
+# Root Endpoint
+@app.get("/")
+def read_root() -> dict[str, str]:
+    return {"message": "Welcome to the Game Insight API!"}
+
+# ------------------ Celery API Endpoints ------------------
+
+@app.post("/api/tasks/revoke/{task_id}")
+def revoke_task(task_id: str):
+    try:
+        celery_app.control.revoke(task_id, terminate=True)
+        return {"status": "success", "message": f"Task {task_id} revoked."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/tasks/available")
+def get_available_tasks():
+    tasks = {}
+    for name, task in celery_app.tasks.items():
+        if not name.startswith('celery.'):
+            tasks[name] = {
+                'name': name,
+                'description': task.__doc__,
+            }
+    return {"tasks": tasks}
+
+@app.post("/api/tasks/run/{task_name}")
+def run_task(task_name: str, params: dict = None):
+    task = celery_app.tasks.get(task_name)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    params = params or {}
+    result = task.delay(**params)
+    return {"task_id": result.id, "status": "started"}
+
+@app.get("/api/tasks/running")
+def running_tasks():
+    inspector = celery_app.control.inspect()
+    active = inspector.active() or {}
+    scheduled = inspector.scheduled() or {}
+    reserved = inspector.reserved() or {}
+
+    return {
+        "active": active,
+        "scheduled": scheduled,
+        "reserved": reserved
+    }
+
+@app.get("/api/tasks/workers")
+def get_workers():
+    inspector = celery_app.control.inspect()
+    workers = inspector.ping()
+    if not workers:
+        raise HTTPException(status_code=500, detail="No active workers found.")
+    return {"workers": list(workers.keys())}
+
+@app.post("/api/tasks/broadcast/{command}")
+def broadcast_command(command: str):
+    if command not in ["shutdown", "ping"]:
+        raise HTTPException(status_code=400, detail="Unsupported command.")
+
+    responses = celery_app.control.broadcast(command)
+    return {"command": command, "responses": responses}
+
+# ------------------ Game Insight API Endpoints ------------------
+
+@app.get("/api/games", response_model=List[schemas.Game])
+def list_games(db: Session = Depends(get_db), search: Optional[str] = None, genre: Optional[str] = None,
+               platform: Optional[str] = None, rating: Optional[float] = None, sort_by: Optional[str] = None,
+               sort_order: Optional[str] = "asc", skip: int = 0, limit: int = 100):
+    return crud.get_games(db=db, search=search, genre=genre, platform=platform, rating=rating,
+                          sort_by=sort_by, sort_order=sort_order, skip=skip, limit=limit)
+
+@app.get("/api/games/{game_id}", response_model=schemas.Game)
+def get_game_details(game_id: int, db: Session = Depends(get_db)):
+    game = db.query(models.Game).filter(models.Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return game
+
+@app.get("/api/genres", response_model=List[schemas.Genre])
+def list_genres(db: Session = Depends(get_db)):
+    return db.query(models.Genre).all()
+
+# ------------------ User and Favorites Endpoints ------------------
+
+def get_current_user(db: Session = Depends(get_db)):
+    return crud.get_user_by_email(db, email="test@example.com")
+
+@app.post("/api/users", response_model=schemas.User)
+def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    db_user = crud.get_user_by_email(db, email=user.email)
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    return crud.create_user(db=db, user=user)
+
+@app.post("/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
+def add_favorite(user_id: int, game_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    game = db.query(models.Game).filter(models.Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    return crud.add_favorite_game(db=db, user=current_user, game=game)
+
+# Stats Endpoints
+@app.get("/api/stats/games-per-year")
+def get_games_per_year(db: Session = Depends(get_db)):
+    return crud.get_games_per_year(db)
+
+@app.get("/api/stats/avg-rating-by-genre")
+def get_avg_rating_by_genre(db: Session = Depends(get_db)):
+    return crud.get_average_rating_by_genre(db)

@@ -1,83 +1,155 @@
-{% extends "layout.html" %}
-
-{% block content %}
-<div class="container-fluid">
-    <h1>{{ admin.title }} - Celery Tasks</h1>
-
-    <div class="row">
-        <div class="col">
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="card-title">Tasks</h3>
-                </div>
-                <div class="card-body">
-                    <table class="table table-bordered table-striped">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Name</th>
-                                <th>Status</th>
-                                <th>Worker</th>
-                                <th>Type</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for task_info in tasks %}
-                            <tr>
-                                <td>{{ task_info.task.id or task_info.task.request.id }}</td>
-                                <td>{{ task_info.task.name or task_info.task.request.name }}</td>
-                                <td>
-                                    {% if task_info.result %}
-                                        <span class="badge bg-{% if task_info.result.status == 'SUCCESS' %}success{% elif task_info.result.status == 'FAILURE' %}danger{% else %}warning{% endif %}">
-                                            {{ task_info.result.status }}
-                                        </span>
-                                    {% else %}
-                                        <span class="badge bg-secondary">{{ task_info.type }}</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ task_info.worker }}</td>
-                                <td><span class="badge bg-info">{{ task_info.type }}</span></td>
-                                <td>
-                                    {% if task_info.type in ['Active', 'Reserved', 'Scheduled'] %}
-                                    <button class="btn btn-danger btn-sm" onclick="revokeTask('{{ task_info.task.id }}')">
-                                        Revoke
-                                    </button>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-    function revokeTask(taskId) {
-        if (confirm('Are you sure you want to revoke this task?')) {
-            fetch(`/api/tasks/revoke/${taskId}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'OK') {
-                    alert('Task revoked successfully.');
-                    location.reload();
-                } else {
-                    alert('Error revoking task: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('An error occurred while revoking the task.');
-            });
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Celery Tasks - Game Insight Admin</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
         }
-    }
-</script>
-{% endblock %}
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2rem;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .stat-card {
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            min-width: 120px;
+        }
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            margin: 20px;
+            border-radius: 5px;
+            border-left: 4px solid #dc3545;
+        }
+        .no-tasks {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+        .tasks-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .tasks-table th,
+        .tasks-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .tasks-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+        .task-type {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        .task-type.active {
+            background: #d4edda;
+            color: #155724;
+        }
+        .task-type.scheduled {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .task-type.reserved {
+            background: #cce7ff;
+            color: #004085;
+        }
+        .task-id {
+            font-family: monospace;
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+        .worker-name {
+            color: #007bff;
+            font-weight: 500;
+        }
+        .refresh-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            font-size: 1.2rem;
+            transition: all 0.3s ease;
+        }
+        .refresh-btn:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-list-check"></i> Celery Tasks Monitor</h1>
+            <p>Real-time monitoring of background tasks</p>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number">{{ tasks|length }}</div>
+                <div class="stat-label">Total Tasks</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">
+                    {{ tasks|selectattr("type", "equalto", "Active")|list|length }}
+                </div>
+                <div class="stat-label">Active</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">
+                    {{ tasks|selectattr("type", "equalto", "Scheduled")|list|length }}
+                </div>
