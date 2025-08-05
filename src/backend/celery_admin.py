@@ -10,7 +10,7 @@ class CeleryTaskView(BaseView):
     template = "celery_tasks.html"
 
     @expose("/tasks", methods=["GET"])
-    async def task_list(self, request: Request):
+    def task_list(self, request: Request):
         inspector = celery_app.control.inspect()
         tasks = []
 
