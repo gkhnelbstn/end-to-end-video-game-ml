@@ -10,6 +10,7 @@ from . import models, schemas, crud
 from .database import engine, get_db
 from .logging import setup_logging
 from .admin import create_admin, setup_admin_views
+from .celery_app import celery_app
 from src.backend.models import AdminUser
 from src.backend.database import SessionLocal
 from passlib.context import CryptContext
@@ -69,6 +70,19 @@ setup_admin_views(admin)
 def read_root() -> dict[str, str]:
     """Root endpoint for the API."""
     return {"message": "Welcome to the Game Insight API!"}
+
+# --- Celery Task Control ---
+
+@app.post("/api/tasks/revoke/{task_id}")
+def revoke_task(task_id: str) -> dict[str, str]:
+    """
+    Revoke a Celery task by its ID.
+    """
+    try:
+        celery_app.control.revoke(task_id, terminate=True)
+        return {"status": "success", "message": f"Task {task_id} revoked."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- API Endpoints for Frontend ---
 
