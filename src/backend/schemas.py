@@ -21,7 +21,7 @@ class GenreCreate(GenreBase):
 
 class Genre(GenreBase):
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class PlatformBase(BaseModel):
@@ -36,7 +36,7 @@ class PlatformCreate(PlatformBase):
 
 class Platform(PlatformBase):
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class StoreBase(BaseModel):
@@ -51,7 +51,7 @@ class StoreCreate(StoreBase):
 
 class Store(StoreBase):
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class TagBase(BaseModel):
@@ -66,7 +66,7 @@ class TagCreate(TagBase):
 
 class Tag(TagBase):
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class GameBase(BaseModel):
@@ -94,7 +94,7 @@ class Game(GameBase):
     tags: List[Tag] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # --- Schemas for Stats ---
@@ -104,7 +104,7 @@ class GamesPerYearStat(BaseModel):
     count: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class AvgRatingByGenreStat(BaseModel):
@@ -112,7 +112,7 @@ class AvgRatingByGenreStat(BaseModel):
     avg_rating: float
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class UserBase(BaseModel):
@@ -129,4 +129,4 @@ class User(UserBase):
     favorite_games: List[Game] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True

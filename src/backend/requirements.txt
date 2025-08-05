@@ -1,13 +1,23 @@
-fastapi
-uvicorn[standard]
-celery
-redis
-psycopg2-binary
-python-dotenv
-SQLAlchemy
-pytest
-httpx
-flower
-python-json-logger
-fastapi-admin
-passlib[bcrypt]
+# Temel
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+pydantic==2.7.0
+SQLAlchemy==2.0.30
+
+# Veritabanı
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1
+
+# Arka plan görevleri
+celery==5.4.0
+redis==5.0.3
+flower==1.2.0
+
+# Admin paneli (fastapi-admin yerine sqladmin)
+sqladmin==0.18.0
+
+# Diğer
+pytest==8.2.2
+httpx==0.27.0
+python-json-logger==2.0.7
+passlib[bcrypt]==1.7.4

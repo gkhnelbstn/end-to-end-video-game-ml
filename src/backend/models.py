@@ -81,7 +81,7 @@ class Game(Base):
 
     # Relationships
     genres = relationship("Genre", secondary=game_genres, back_populates="games")
-    platforms = relationship("Platform", secondary=game_platforms, back_pop_ulates="games")
+    platforms = relationship("Platform", secondary=game_platforms, back_populates="games")
     stores = relationship("Store", secondary=game_stores, back_populates="games")
     tags = relationship("Tag", secondary=game_tags, back_populates="games")
     favorited_by = relationship("User", secondary=user_favorite_games, back_populates="favorite_games")
@@ -145,3 +145,15 @@ class User(Base):
 
     # Relationships
     favorite_games = relationship("Game", secondary=user_favorite_games, back_populates="favorited_by")
+
+class AdminUser(Base):
+    __tablename__ = "admin_users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)
+
+    # Timestamps
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())

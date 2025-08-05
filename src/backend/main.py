@@ -2,11 +2,15 @@
 
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from typing import List, Optional
 from . import models, schemas, crud
 from .database import engine, get_db
 from .logging import setup_logging
-from .admin import admin_app
+from .admin import admin  # yukarıdaki admin_app
+from src.backend.models import AdminUser
+from src.backend.database import SessionLocal
+from passlib.context import CryptContext
 
 # Set up logging
 setup_logging()
@@ -14,6 +18,26 @@ setup_logging()
 # Create the database tables
 models.Base.metadata.create_all(bind=engine)
 
+# View'leri oluştur (tablolar oluşturulduktan sonra)
+def create_views():
+    try:
+        with open('src/backend/views.sql', 'r') as f:
+            sql = f.read()
+        if sql.strip():
+            db = SessionLocal()
+            try:
+                db.execute(text(sql))
+                db.commit()
+                print("✅ Views created successfully.")
+            except Exception as e:
+                print(f"⚠️  Error creating views: {e}")
+                db.rollback()
+            finally:
+                db.close()
+    except FileNotFoundError:
+        print("⚠️  views.sql file not found. Skipping view creation.")
+    except Exception as e:
+        print(f"⚠️  Unexpected error reading views.sql: {e}")
 
 app = FastAPI(
     title="Game Insight API",
@@ -21,8 +45,13 @@ app = FastAPI(
     version="0.1.0",
 )
 
+@app.get("/health")
+def health_check() -> dict[str, str]:
+    """Health check endpoint."""
+    return {"status": "ok"}
+
 # Mount the admin app
-app.mount("/admin", admin_app)
+app.mount("/admin", admin.app)
 
 
 @app.get("/")
@@ -31,10 +60,7 @@ def read_root() -> dict[str, str]:
     return {"message": "Welcome to the Game Insight API!"}
 
 
-@app.get("/health")
-def health_check() -> dict[str, str]:
-    """Health check endpoint."""
-    return {"status": "ok"}
+
 
 
 # --- API Endpoints for Frontend ---
@@ -164,3 +190,27 @@ def get_avg_rating_by_genre(db: Session = Depends(get_db)):
     Get the average rating for each genre.
     """
     return crud.get_average_rating_by_genre(db)
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")  # ✅ Artık tanımlı
+def create_first_admin():
+
+    db = SessionLocal()
+    try:
+        # Kullanıcı zaten varsa oluşturmayalım
+        if not db.query(AdminUser).filter(AdminUser.username == "admin").first():
+            admin = AdminUser(
+                username="admin",
+                hashed_password=pwd_context.hash("adminpass"),  # Parolayı değiştirebilirsin
+                is_active=True
+            )
+            db.add(admin)
+            db.commit()
+            print("✅ First admin user created: username=admin, password=adminpass")
+    finally:
+        db.close()
+
+# app.on_event("startup") ile çağır
+@app.on_event("startup")
+def on_startup():
+    create_views()
+    create_first_admin()

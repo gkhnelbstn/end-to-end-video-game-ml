@@ -61,6 +61,12 @@ services:
       options:
         fluentd-address: localhost:24224
         tag: docker.{{.Name}}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 1s
+      retries: 3
+      start_period: 60s
 
   flower:
     build:
@@ -95,8 +101,10 @@ services:
     volumes:
       - ./src:/app/src
     depends_on:
-      - backend
-      - fluentd
+      backend:
+        condition: service_healthy
+      fluentd:
+        condition: service_started  # fluentd has no healthcheck, so we use started
     logging:
       driver: "fluentd"
       options:

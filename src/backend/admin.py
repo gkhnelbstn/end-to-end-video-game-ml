@@ -1,86 +1,31 @@
-"""
-Configuration for the FastAPI Admin panel.
-"""
-import os
-from fastapi_admin.app import app as admin_app
-from fastapi_admin.resources import Model
-from fastapi_admin.providers.login import UsernamePasswordProvider
-from passlib.context import CryptContext
-from .models import User, Game, Genre, Platform, Store, Tag, UserRole
-from .database import SessionLocal
+# src/backend/admin.py
 
-# In a real application, you would have a more secure way of managing the secret
-# key, e.g., by loading it from an environment variable.
-ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY", "your-super-secret-key")
+from sqladmin import Admin, ModelView
+from fastapi import FastAPI # ✅ FastAPI'yi import edin
+from .database import engine
+from .models import Game, Platform, AdminUser
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# ✅ Geçici bir FastAPI örneği oluşturun
+# Bu, sqladmin'in doğru çalışmasını sağlar
+_temp_app = FastAPI()
 
-# Authentication provider
-class AdminAuthProvider(UsernamePasswordProvider):
-    async def login(self, username: str, password: str) -> User:
-        db = SessionLocal()
-        user = db.query(User).filter(User.email == username).first()
-        db.close()
+# Admin nesnesini oluşturun, app parametresini geçici app ile geçirin
+admin = Admin(app=_temp_app, engine=engine)
 
-        if not user:
-            return None
-        if not pwd_context.verify(password, user.hashed_password):
-            return None
-        if user.role != UserRole.ADMIN:
-            return None
-        return user
+# Model view'leri tanımlayın
+class GameAdmin(ModelView, model=Game):
+    column_list = [Game.id, Game.name]
 
-    async def get_user(self, username: str) -> User:
-        db = SessionLocal()
-        user = db.query(User).filter(User.email == username).first()
-        db.close()
-        return user
+class PlatformAdmin(ModelView, model=Platform):
+    column_list = [Platform.id, Platform.name]
 
-# Initialize the admin app with the auth provider
-admin_app.configure(
-    secret_key=ADMIN_SECRET_KEY,
-    auth_provider=AdminAuthProvider(),
-)
+class AdminUserAdmin(ModelView, model=AdminUser):
+    column_list = [AdminUser.id, AdminUser.username]
 
-@admin_app.register
-class UserAdmin(Model):
-    """Admin resource for the User model."""
-    model = User
-    icon = "fas fa-user"
-    fields = ["id", "email", "is_active", "role", "created_at"]
+# Admin view'lerini ekleyin
+admin.add_view(GameAdmin)
+admin.add_view(PlatformAdmin)
+admin.add_view(AdminUserAdmin)
 
-@admin_app.register
-class GameAdmin(Model):
-    """Admin resource for the Game model."""
-    model = Game
-    icon = "fas fa-gamepad"
-    fields = ["id", "name", "slug", "released", "rating", "metacritic"]
-
-@admin_app.register
-class GenreAdmin(Model):
-    """Admin resource for the Genre model."""
-    model = Genre
-    icon = "fas fa-tag"
-    fields = ["id", "name", "slug"]
-
-@admin_app.register
-class PlatformAdmin(Model):
-    """Admin resource for the Platform model."""
-    model = Platform
-    icon = "fas fa-laptop"
-    fields = ["id", "name", "slug"]
-
-@admin_app.register
-class StoreAdmin(Model):
-    """Admin resource for the Store model."""
-    model = Store
-    icon = "fas fa-store"
-    fields = ["id", "name", "slug"]
-
-@admin_app.register
-class TagAdmin(Model):
-    """Admin resource for the Tag model."""
-    model = Tag
-    icon = "fas fa-hashtag"
-    fields = ["id", "name", "slug"]
+# main.py dosyasında şu satırı kullandığınızdan emin olun:
+# app.mount("/admin", admin.app)
