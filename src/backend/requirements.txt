@@ -1,4 +1,4 @@
-# Temel
+# Temel FastAPI
 fastapi==0.110.0
 uvicorn[standard]==0.29.0
 pydantic==2.7.0
@@ -8,16 +8,22 @@ SQLAlchemy==2.0.30
 psycopg2-binary==2.9.9
 python-dotenv==1.0.1
 
-# Arka plan görevleri
+# Arka plan görevleri (Python 3.12 uyumlu versiyonlar)
 celery==5.4.0
-redis==5.0.3
-flower==1.2.0
+redis==5.0.4
+flower==2.0.1
 
-# Admin paneli (fastapi-admin yerine sqladmin)
+# Admin paneli - SQLAdmin (Python 3.12 uyumlu)
 sqladmin==0.18.0
 
-# Diğer
+# Authentication ve security
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.9  # Form data için gerekli
+
+# Test ve development
 pytest==8.2.2
 httpx==0.27.0
 python-json-logger==2.0.7
-passlib[bcrypt]==1.7.4
+
+# Session middleware için
+itsdangerous==2.2.0
