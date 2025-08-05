@@ -58,7 +58,7 @@
 <script>
     function revokeTask(taskId) {
         if (confirm('Are you sure you want to revoke this task?')) {
-            fetch(`/admin/tasks/revoke/${taskId}`, {
+            fetch(`/api/tasks/revoke/${taskId}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
