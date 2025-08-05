@@ -5,3 +5,6 @@ pandas==2.2.2
 python-dotenv==1.0.1
 streamlit
 pymongo
+celery-redbeat
+celery[redis]==5.3.6
+redis==5.0.4
