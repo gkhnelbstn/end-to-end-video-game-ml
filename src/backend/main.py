@@ -1,6 +1,9 @@
 """Main FastAPI application for the Game Insight project."""
 
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from starlette.requests import Request
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -12,14 +15,30 @@ from .database import engine, get_db, SessionLocal
 from .logging import setup_logging
 from .admin import create_admin, setup_admin_views
 from .celery_app import celery_app
-from .celery_admin import CeleryTaskView
+from .celery_admin import CeleryMonitoringView
 from .models import AdminUser
+from .task_scheduler import task_scheduler
+from .task_management_api import router as task_management_router
+from .task_admin import TaskManagementView, setup_task_management_routes
 
 # Set up logging
 setup_logging()
 
-# Create the database tables
-models.Base.metadata.create_all(bind=engine)
+# Safe database initialization
+def initialize_database():
+    """
+    Safely initialize database tables and views.
+    Only creates tables if they don't exist, preserving existing data.
+    """
+    try:
+        # Create tables only if they don't exist (this is the default behavior)
+        models.Base.metadata.create_all(bind=engine)
+        print("✅ Database tables initialized successfully.")
+    except Exception as e:
+        print(f"⚠️ Error initializing database tables: {e}")
+
+# Initialize database
+initialize_database()
 
 # Function to create database views after table creation
 def create_views():
@@ -76,13 +95,19 @@ app.add_middleware(SessionMiddleware, secret_key="your-secret-key-change-this-in
 # Admin panel setup
 admin = create_admin(app)
 setup_admin_views(admin)
-admin.add_view(CeleryTaskView)  # Advanced Celery admin integration
+# Task management views removed from admin panel - use /task-management instead
 
-# Startup event to create views and first admin
+# Application startup and shutdown events
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     create_views()
     create_first_admin()
+    await task_scheduler.start()
+    # setup_task_management_routes(admin)  # Disabled - causes routing conflicts with SQLAdmin
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    await task_scheduler.shutdown()
 
 # Health Check Endpoint
 @app.get("/health")
@@ -153,6 +178,17 @@ def broadcast_command(command: str):
 
     responses = celery_app.control.broadcast(command)
     return {"command": command, "responses": responses}
+
+# Task Management API
+app.include_router(task_management_router)
+
+# Task Management UI endpoint
+templates = Jinja2Templates(directory="src/backend/templates")
+
+@app.get("/task-management", response_class=HTMLResponse)
+async def task_management_ui(request: Request):
+    """Serve the task management UI."""
+    return templates.TemplateResponse("task_management.html", {"request": request})
 
 # ------------------ Game Insight API Endpoints ------------------
 

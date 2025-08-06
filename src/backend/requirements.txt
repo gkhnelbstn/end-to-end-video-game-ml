@@ -12,6 +12,7 @@ python-dotenv==1.0.1
 celery==5.4.0
 redis==5.0.4
 flower==2.0.1
+apscheduler==3.10.4
 
 # Admin paneli - SQLAdmin (Python 3.12 uyumlu)
 sqladmin==0.18.0
