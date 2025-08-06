@@ -130,7 +130,7 @@ services:
   worker:
     build:
       context: .
-      dockerfile: ./src/backend/Dockerfile # Reusing backend Dockerfile
+      dockerfile: ./src/worker/Dockerfile
     container_name: game-insight-worker
     command: celery -A src.backend.celery_app worker --loglevel=info
     volumes:
@@ -180,7 +180,7 @@ services:
   test:
     build:
       context: .
-      dockerfile: ./src/backend/Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: game-insight-test-runner
     depends_on:
       backend:
