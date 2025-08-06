@@ -10,11 +10,11 @@ import importlib
 logger = logging.getLogger(__name__)
 
 
-class CeleryTaskView(BaseView):
-    name = "Celery Tasks"
-    icon = "fa-solid fa-list-check"
+class CeleryMonitoringView(BaseView):
+    name = "Celery Monitoring"
+    icon = "fa-solid fa-chart-line"
     category = "Tasks"
-    menu_icon = "fa-solid fa-list-check"
+    menu_icon = "fa-solid fa-chart-line"
 
     def _get_available_tasks(self):
         """Mevcut task'ları listele"""
@@ -207,10 +207,9 @@ class CeleryTaskView(BaseView):
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
 
-    @expose("/tasks/revoke", methods=["POST"])
+    @expose("/tasks/revoke/{task_id}", methods=["POST"])
     async def revoke_task(self, request: Request):
-        form = await request.form()
-        task_id = form.get("task_id")
+        task_id = request.path_params["task_id"]
 
         if not task_id:
             return JSONResponse({"error": "Task ID is required"}, status_code=400)

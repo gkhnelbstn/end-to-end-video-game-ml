@@ -1,15 +1,15 @@
 # src/backend/admin.py
 
-from sqladmin import Admin, ModelView
+from sqladmin import Admin, ModelView, BaseView
 from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
-from sqlalchemy.orm import Session
 from passlib.context import CryptContext
+from sqlalchemy.orm import Session
 from .database import engine, SessionLocal
 from .models import Game, Platform, Genre, Store, Tag, AdminUser, User
 from .celery_app import celery_app
-from .celery_admin import CeleryTaskView
+# from .celery_admin import CeleryMonitoringView  # Removed due to routing issues
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -68,13 +68,12 @@ authentication_backend = AdminAuth(secret_key="your-secret-key-change-this-in-pr
 
 # Admin interface'i oluşturacak fonksiyon
 def create_admin(app):
-    """Admin interface'i oluştur ve app'e bağla"""
+    """Admin panelini oluştur"""
     admin = Admin(
         app=app,
         engine=engine,
         authentication_backend=authentication_backend,
-        title="Game Insight Admin",
-        templates_dir="/app/src/backend/templates",  # Absolute path in Docker container
+        templates_dir="src/backend/templates"  # Custom templates directory
     )
     return admin
 
@@ -168,5 +167,4 @@ def setup_admin_views(admin):
     admin.add_view(TagAdmin)
     admin.add_view(UserAdmin)
     admin.add_view(AdminUserAdmin)
-    admin.add_view(CeleryTaskView)
     return admin
