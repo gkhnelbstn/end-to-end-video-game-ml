@@ -41,7 +41,22 @@ To run this project locally, you need to have Docker and Docker Compose installe
     cd <repository-name>
     ```
 
-2.  **Start the services using Docker Compose:**
+2.  **Set up the environment:**
+    - Create a `.env` file in the root of the project. You can use `.env.example` as a template.
+    - Update the environment variables in the `.env` file as needed.
+
+3.  **Install dependencies:**
+    - The project uses `uv` to manage dependencies. The dependencies for each service are defined in `requirements.in` files.
+    - To install all dependencies for local development, run:
+      ```bash
+      make requirements
+      ```
+    - If you change a `requirements.in` file, you need to regenerate the corresponding `.lock` file by running:
+      ```bash
+      make lock
+      ```
+
+4.  **Start the services using Docker Compose:**
     ```bash
     docker compose up --build -d
     ```
@@ -81,7 +96,42 @@ This script will prompt you to enter an email and password for the new admin use
 ## Project Structure
 
 The project is organized based on the `cookiecutter-data-science` template. Service-specific code is located under the `src/` directory.
-... (rest of the structure remains the same)
+
+```
+├── .env.example
+├── data
+│   ├── external
+│   ├── interim
+│   ├── processed
+│   └── raw
+├── docker-compose.yml
+├── Dockerfile.dev
+├── docs
+├── fluentd
+├── logs
+├── Makefile
+├── models
+├── notebooks
+├── references
+├── reports
+├── requirements.dev.in
+├── requirements.dev.lock
+├── src
+│   ├── backend
+│   │   ├── Dockerfile
+│   │   ├── requirements.in
+│   │   └── requirements.lock
+│   ├── frontend
+│   │   ├── Dockerfile
+│   │   ├── requirements.in
+│   │   └── requirements.lock
+│   └── worker
+│       ├── Dockerfile
+│       ├── requirements.in
+│       └── requirements.lock
+├── test_environment.py
+└── tests
+```
 
 ## Project To-Do List / Roadmap
 
