@@ -1,0 +1,107 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h1>Game Insight Admin Dashboard</h1>
+            <p class="lead">Welcome to the Game Insight administration panel.</p>
+        </div>
+    </div>
+    
+    <div class="row mt-4">
+        <!-- Task Management Card -->
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 border-primary">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        <i class="fas fa-tasks fa-3x text-primary"></i>
+                    </div>
+                    <h5 class="card-title">Task Management</h5>
+                    <p class="card-text">
+                        Manage periodic tasks, schedule jobs, and monitor background processes.
+                    </p>
+                    <a href="/task-management" class="btn btn-primary" target="_blank">
+                        <i class="fas fa-external-link-alt"></i> Open Task Manager
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Database Management Card -->
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 border-success">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        <i class="fas fa-database fa-3x text-success"></i>
+                    </div>
+                    <h5 class="card-title">Database Management</h5>
+                    <p class="card-text">
+                        Manage games, platforms, genres, stores, and user data.
+                    </p>
+                    <div class="btn-group-vertical">
+                        <a href="{{ url_for('admin:list', identity='game') }}" class="btn btn-sm btn-outline-success">Games</a>
+                        <a href="{{ url_for('admin:list', identity='platform') }}" class="btn btn-sm btn-outline-success">Platforms</a>
+                        <a href="{{ url_for('admin:list', identity='user') }}" class="btn btn-sm btn-outline-success">Users</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- API Documentation Card -->
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 border-info">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        <i class="fas fa-code fa-3x text-info"></i>
+                    </div>
+                    <h5 class="card-title">API & Documentation</h5>
+                    <p class="card-text">
+                        Access API endpoints and system documentation.
+                    </p>
+                    <div class="btn-group-vertical">
+                        <a href="/docs" class="btn btn-sm btn-outline-info" target="_blank">API Docs</a>
+                        <a href="/api/tasks/" class="btn btn-sm btn-outline-info" target="_blank">Task API</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Quick Stats</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-md-3">
+                            <div class="border-end">
+                                <h4 class="text-primary">{{ request.app.state.stats.games if request.app.state.stats is defined else '---' }}</h4>
+                                <small class="text-muted">Total Games</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="border-end">
+                                <h4 class="text-success">{{ request.app.state.stats.users if request.app.state.stats is defined else '---' }}</h4>
+                                <small class="text-muted">Total Users</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="border-end">
+                                <h4 class="text-warning">{{ request.app.state.stats.platforms if request.app.state.stats is defined else '---' }}</h4>
+                                <small class="text-muted">Platforms</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <h4 class="text-info">{{ request.app.state.stats.tasks if request.app.state.stats is defined else '---' }}</h4>
+                            <small class="text-muted">Active Tasks</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
