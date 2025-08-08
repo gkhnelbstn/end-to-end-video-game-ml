@@ -17,6 +17,9 @@ This project utilizes the following technologies and libraries:
 -   **Backend:**
     -   **Framework:** FastAPI
     -   **Package Manager:** uv
+    -   **ORM:** SQLAlchemy
+    -   **Migrations:** Alembic
+    -   **Admin:** SQLAdmin
 -   **Frontend:**
     -   **Framework:** Streamlit
 -   **Database:**
@@ -65,6 +68,35 @@ This command will build the images and start all services in detached mode.
 -   **Backend API:** `http://localhost:8000`
 -   **Frontend Dashboard:** `http://localhost:8501`
 -   **Celery Monitoring (Flower):** `http://localhost:5555`
+-   **Admin Panel:** `http://localhost:8000/admin`
+-   **Health Check:** `http://localhost:8000/health`
+
+## Database Migrations (Alembic)
+
+Alembic is integrated and automatically runs on backend container startup. The Docker entrypoint applies `upgrade head` before launching the API. The database is persisted via a Docker volume, so rebuilding images will not reset data.
+
+- Environment variable: `USE_ALEMBIC=1` is set for the backend service to disable `create_all` and delegate schema management to Alembic.
+
+Common commands (run from repository root):
+
+```bash
+# Generate a new migration from current SQLAlchemy models
+docker compose run --rm backend \
+  alembic -c /app/src/backend/alembic.ini revision --autogenerate -m "your message"
+
+# Apply latest migrations
+docker compose run --rm backend \
+  alembic -c /app/src/backend/alembic.ini upgrade head
+
+# Show current DB revision
+docker compose run --rm backend \
+  alembic -c /app/src/backend/alembic.ini current
+```
+
+Notes:
+- Alembic configuration and versions live under `src/backend/alembic/`.
+- Inside the container, project root is `/app`. Use absolute paths like `/app/src/backend/alembic.ini`.
+- If you develop outside Docker, ensure you have the same dependencies installed via `uv`.
 
 ## Logging
 
@@ -92,6 +124,10 @@ docker compose exec backend python src/backend/create_admin.py
 ```
 
 This script will prompt you to enter an email and password for the new admin user. Once created, you can use these credentials to log in to the admin panel.
+
+Admin templates are loaded from `/app/src/backend/templates` inside the container.
+
+If you see a 500 error on list pages after upgrading SQLAdmin, avoid using legacy `column_filters` with raw model columns; use the new filter API or remove filters.
 
 ## Project Structure
 

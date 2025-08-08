@@ -1,5 +1,6 @@
 """Main FastAPI application for the Game Insight project."""
 
+import os
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -37,8 +38,9 @@ def initialize_database():
     except Exception as e:
         print(f"⚠️ Error initializing database tables: {e}")
 
-# Initialize database
-initialize_database()
+# Initialize database (skip when Alembic is managing migrations)
+if os.getenv("USE_ALEMBIC", "0") != "1":
+    initialize_database()
 
 # Function to create database views after table creation
 def create_views():

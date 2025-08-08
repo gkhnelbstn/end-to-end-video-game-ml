@@ -41,7 +41,7 @@ services:
       context: .
       dockerfile: ./src/backend/Dockerfile
     container_name: game-insight-backend
-    command: uvicorn src.backend.main:app --host 0.0.0.0 --port 8000 --reload
+    command: sh /app/src/backend/docker-entrypoint.sh
     ports:
       - "8000:8000"
     volumes:
@@ -57,6 +57,7 @@ services:
       - ./.env
     environment:
       - PYTHONPATH=/app
+      - USE_ALEMBIC=1
     logging:
       driver: "fluentd"
       options:
@@ -136,6 +137,8 @@ services:
     volumes:
       - ./src:/app/src
     depends_on:
+      backend:
+        condition: service_healthy
       db:
         condition: service_healthy
       redis:
@@ -161,6 +164,8 @@ services:
     volumes:
       - ./src:/app/src
     depends_on:
+      backend:
+        condition: service_healthy
       db:
         condition: service_healthy
       redis:
@@ -206,6 +211,8 @@ services:
     volumes:
       - ./src:/app/src
     depends_on:
+      backend:
+        condition: service_healthy
       db:
         condition: service_healthy
       redis:

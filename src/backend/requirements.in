@@ -12,14 +12,14 @@ python-dotenv==1.0.1
 celery==5.4.0
 redis==5.0.4
 flower==2.0.1
-<<<<<<< HEAD:src/backend/requirements.txt
-apscheduler==3.10.4
-=======
 celery-redbeat
->>>>>>> feat/uv-dependency-management:src/backend/requirements.in
+APScheduler==3.10.4
+
+# HTTP istemcisi
+httpx==0.27.2
 
 # Admin paneli - SQLAdmin (Python 3.12 uyumlu)
-sqladmin==0.18.0
+sqladmin==0.21.0
 
 # Authentication ve security
 passlib[bcrypt]==1.7.4
@@ -30,3 +30,6 @@ python-json-logger==2.0.7
 
 # Session middleware için
 itsdangerous==2.2.0
+
+# Migrations
+alembic==1.13.2
