@@ -88,4 +88,4 @@ target/
 
 # csv
 *.csv
-*.csv
+!/.env.example
