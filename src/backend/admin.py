@@ -73,7 +73,7 @@ def create_admin(app):
         app=app,
         engine=engine,
         authentication_backend=authentication_backend,
-        templates_dir="src/backend/templates"  # Custom templates directory
+        templates_dir="/app/src/backend/templates"  # Custom templates directory (absolute path for Docker)
     )
     return admin
 
@@ -92,7 +92,8 @@ class GameAdmin(ModelView, model=Game):
     ]
     column_searchable_list = [Game.name]
     column_sortable_list = [Game.name, Game.rating, Game.released]
-    column_filters = [Game.rating, Game.released]
+    # SQLAdmin >=0.21.0 filter API expects filter objects; temporarily disable to avoid errors
+    column_filters = []
 
     # Sayfa başına gösterilecek kayıt sayısı
     page_size = 50
@@ -137,7 +138,8 @@ class UserAdmin(ModelView, model=User):
 
     column_list = [User.id, User.email, User.is_active, User.role, User.created_at]
     column_searchable_list = [User.email]
-    column_filters = [User.is_active, User.role]
+    # Disable problematic column_filters; can be replaced with proper filter objects later
+    column_filters = []
 
     # Şifre alanını gizle
     # column_exclude_list = [User.hashed_password]
@@ -150,7 +152,7 @@ class AdminUserAdmin(ModelView, model=AdminUser):
 
     column_list = [AdminUser.id, AdminUser.username, AdminUser.is_active, AdminUser.created_at]
     column_searchable_list = [AdminUser.username]
-    column_filters = [AdminUser.is_active]
+    column_filters = []
 
     # Şifre alanını gizle
     # column_exclude_list = [AdminUser.hashed_password]

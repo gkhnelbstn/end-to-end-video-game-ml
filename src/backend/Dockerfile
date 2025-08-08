@@ -31,4 +31,8 @@ RUN uv pip sync --system --no-cache-dir /app/requirements.lock
 COPY ./src /app/src
 COPY ./tests /app/tests
 
+# Ensure entrypoint script is executable
+RUN sed -i 's/\r$//' /app/src/backend/docker-entrypoint.sh || true \
+    && chmod +x /app/src/backend/docker-entrypoint.sh || true
+
 # The command to run the application will be specified in docker-compose.yml
