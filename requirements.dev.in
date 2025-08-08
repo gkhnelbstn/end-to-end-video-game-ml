@@ -1,0 +1,8 @@
+-r src/backend/requirements.in
+-r src/frontend/requirements.in
+-r src/worker/requirements.in
+
+# Test ve development
+pytest==8.2.2
+httpx==0.27.0
+flake8

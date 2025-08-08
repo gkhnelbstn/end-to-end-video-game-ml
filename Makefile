@@ -20,10 +20,16 @@ endif
 # COMMANDS                                                                      #
 #################################################################################
 
-## Install Python Dependencies
-requirements: test_environment
-	$(PYTHON_INTERPRETER) -m pip install -U pip setuptools wheel
-	$(PYTHON_INTERPRETER) -m pip install -r requirements.txt
+## Install Python Dependencies using uv
+requirements:
+	uv pip sync requirements.dev.lock
+
+## Generate all lock files
+lock:
+	uv pip compile src/backend/requirements.in -o src/backend/requirements.lock
+	uv pip compile src/frontend/requirements.in -o src/frontend/requirements.lock
+	uv pip compile src/worker/requirements.in -o src/worker/requirements.lock
+	uv pip compile requirements.dev.in -o requirements.dev.lock
 
 ## Make Dataset
 data: requirements

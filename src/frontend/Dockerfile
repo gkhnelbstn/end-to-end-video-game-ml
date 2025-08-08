@@ -12,10 +12,10 @@ WORKDIR /app
 RUN pip install uv
 
 # Copy the requirements file into the container at /app
-COPY ./src/frontend/requirements.txt /app/
+COPY ./src/frontend/requirements.lock /app/requirements.lock
 
 # Install any needed packages specified in requirements.txt
-RUN uv pip install --system --no-cache-dir -r /app/requirements.txt
+RUN uv pip sync --system --no-cache-dir /app/requirements.lock
 
 # Copy the rest of the application's source code from the context
 COPY ./src/frontend /app/src/frontend
