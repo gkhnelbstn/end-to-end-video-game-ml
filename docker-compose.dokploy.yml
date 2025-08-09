@@ -1,0 +1,181 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:17
+    container_name: game-insight-db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=game_insight_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d game_insight_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+
+  redis:
+    image: redis:6.2-alpine
+    container_name: game-insight-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+
+  fluentd:
+    image: fluent/fluentd:v1.16-1
+    container_name: game-insight-fluentd
+    volumes:
+      - ./fluentd:/fluentd/etc
+      - fluentd_logs:/fluentd/log
+    networks:
+      - default
+
+  backend:
+    build:
+      context: .
+      dockerfile: ./src/backend/Dockerfile
+    container_name: game-insight-backend
+    command: sh /app/src/backend/docker-entrypoint.sh
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      fluentd:
+        condition: service_started
+    environment:
+      - PYTHONPATH=/app
+      - USE_ALEMBIC=1
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 1s
+      retries: 3
+      start_period: 60s
+    networks:
+      - default
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`backend.your-domain.com`)"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+
+  flower:
+    build:
+      context: .
+      dockerfile: ./src/backend/Dockerfile
+    container_name: game-insight-flower
+    command: celery -A src.backend.celery_app flower --port=5555
+    expose:
+      - "5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+      fluentd:
+        condition: service_started
+    environment:
+      - PYTHONPATH=/app
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
+    networks:
+      - default
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.flower.rule=Host(`flower.your-domain.com`)"
+      - "traefik.http.services.flower.loadbalancer.server.port=5555"
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: ./src/backend/Dockerfile
+    container_name: game-insight-celery-beat
+    command: >
+      celery -A src.backend.celery_app beat
+      --loglevel=INFO
+      --scheduler redbeat.RedBeatScheduler
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - db
+    networks:
+      - default
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ./src/frontend/Dockerfile
+    container_name: game-insight-frontend
+    expose:
+      - "8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+      fluentd:
+        condition: service_started
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
+    networks:
+      - default
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`frontend.your-domain.com`)"
+      - "traefik.http.services.frontend.loadbalancer.server.port=8501"
+
+  worker:
+    build:
+      context: .
+      dockerfile: ./src/worker/Dockerfile
+    container_name: game-insight-worker
+    command: celery -A src.backend.celery_app worker --loglevel=info
+    depends_on:
+      backend:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      fluentd:
+        condition: service_started
+    environment:
+      - PYTHONPATH=/app
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.{{.Name}}
+    networks:
+      - default
+
+volumes:
+  postgres_data:
+  fluentd_logs:
+
+networks:
+  dokploy-network:
+    external: true
+  default:
+    driver: bridge
