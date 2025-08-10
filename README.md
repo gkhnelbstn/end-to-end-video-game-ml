@@ -71,6 +71,72 @@ This command will build the images and start all services in detached mode.
 -   **Admin Panel:** `http://localhost:8000/admin`
 -   **Health Check:** `http://localhost:8000/health`
 
+### .env example
+
+Create a `.env` at the project root. Use `.env.example` as a reference, or start with the snippet below:
+
+```
+DATABASE_URL=postgresql://user:password@db:5432/game_insight_db
+CELERY_BROKER_URL=redis://redis:6379/0
+BACKEND_BASE_URL=http://backend:8000
+RAWG_API_KEY=your_api_key_here
+SECRET_KEY=a_very_secret_key
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+```
+
+Notes:
+- Set RAWG_API_KEY to a valid key from RAWG.io.
+- Values above are suitable for the provided Docker Compose setup (services talk over the Docker network).
+
+## Run locally using docker-compose.dokploy.yml (with Fluentd)
+
+This compose includes Fluentd and the logging configuration used for Dokploy. On Windows, the Docker logging driver must connect to Fluentd via the host (127.0.0.1).
+
+1. Stop any previous stack and remove orphans:
+   ```powershell
+   docker compose -f docker-compose.dokploy.yml down --remove-orphans
+   ```
+2. Start Fluentd first and wait until it listens on 24224:
+   ```powershell
+   docker compose -f docker-compose.dokploy.yml up -d fluentd
+   while(-not (Test-NetConnection 127.0.0.1 -Port 24224).TcpTestSucceeded){ Start-Sleep -Seconds 1 }
+   ```
+3. Start the remaining services:
+   ```powershell
+   docker compose -f docker-compose.dokploy.yml up -d --build backend flower celery-beat frontend worker
+   ```
+4. Verify logs:
+   ```powershell
+   docker logs game-insight-fluentd --since 1m
+   docker logs game-insight-backend --since 1m
+   ```
+
+Troubleshooting:
+- If you see `failed to initialize logging driver: lookup fluentd: i/o timeout`, ensure `fluentd-address` is `127.0.0.1:24224` in the compose and that Fluentd is running before other services.
+
+## Deploy with Dokploy
+
+This repo includes `docker-compose.dokploy.yml` for deployments managed by [Dokploy](https://dokploy.com/). It preserves a hybrid env strategy: `.env` for local, and variables can be added/overridden in Dokploy UI for the server.
+
+Steps (Git-based deployment):
+- In Dokploy, create a Project (e.g., "game-insight").
+- Create Application → Docker Compose.
+  - Repository: connect your Git provider/repo.
+  - Branch: the branch with your deployment config.
+  - Compose path: `docker-compose.dokploy.yml` (repo root).
+  - Context/Workdir: repo root.
+- Environment variables: In the Dokploy Application → Environment tab, add the keys from `.env.example` as needed (DATABASE_URL, CELERY_BROKER_URL, RAWG_API_KEY, SECRET_KEY, etc.). Values set here will override any defaults.
+- Start order (important for logging): Start `fluentd` first, then start the remaining services (backend, frontend, flower, celery-beat, worker). Even though Compose has `depends_on`, Docker’s logging driver connects during container creation, so Fluentd must be ready.
+- Logging driver note: The compose is set to `fluentd-address: 127.0.0.1:24224`. This works on a single-server Dokploy because the Docker daemon connects to the host’s Fluentd. Ensure port 24224 is reachable on the host; the compose publishes both TCP and UDP 24224.
+- Traefik/domains: Not required. Labels remain placeholders; you can ignore or later configure Dokploy/Traefik ingress to route to `backend` (8000) and `frontend` (8501).
+- Volumes: `postgres_data` and `fluentd_logs` are persisted by Docker volumes on the server.
+
+Validate deployment:
+- Check container status in Dokploy UI.
+- View logs: `fluentd` should show it’s listening on 24224; backend should start without logging driver errors.
+- Access services: Backend `http://<server-ip>:8000`, Frontend `http://<server-ip>:8501` (unless fronted by a reverse proxy/ingress).
+
 ## Database Migrations (Alembic)
 
 Alembic is integrated and automatically runs on backend container startup. The Docker entrypoint applies `upgrade head` before launching the API. The database is persisted via a Docker volume, so rebuilding images will not reset data.
