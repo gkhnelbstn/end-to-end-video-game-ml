@@ -64,7 +64,7 @@ services:
       - ./.env
     environment:
       - PYTHONPATH=/app
-      - USE_ALEMBIC=0
+      - USE_ALEMBIC=1
     logging:
       driver: "json-file"
       options:
@@ -148,31 +148,6 @@ services:
       dockerfile: ./src/worker/Dockerfile
     container_name: game-insight-worker
     command: celery -A src.backend.celery_app worker --loglevel=info
-    volumes:
-      - ./src:/app/src
-    depends_on:
-      backend:
-        condition: service_healthy
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    env_file:
-      - ./.env
-    environment:
-      - PYTHONPATH=/app
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  scheduler:
-    build:
-      context: .
-      dockerfile: ./src/backend/Dockerfile # Reusing backend Dockerfile
-    container_name: game-insight-scheduler
-    command: celery -A src.backend.celery_app beat --loglevel=info
     volumes:
       - ./src:/app/src
     depends_on:

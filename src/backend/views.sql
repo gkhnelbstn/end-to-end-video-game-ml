@@ -25,7 +25,7 @@ LEFT JOIN
 LEFT JOIN
     platforms p ON gp.platform_id = p.id
 LEFT JOIN
-    game_stores gs ON g.id = gs.store_id
+    game_stores gs ON g.id = gs.game_id
 LEFT JOIN
     stores s ON gs.store_id = s.id
 LEFT JOIN
