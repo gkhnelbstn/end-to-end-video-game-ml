@@ -98,6 +98,55 @@ Notes:
 - Inside the container, project root is `/app`. Use absolute paths like `/app/src/backend/alembic.ini`.
 - If you develop outside Docker, ensure you have the same dependencies installed via `uv`.
 
+## Seeder and Media Backfill
+
+Seed CSV data and backfill media fields:
+
+```bash
+# Run seeder (parses CSV under data/raw). If a game exists, it backfills background_image/clip when available
+docker compose run --rm seeder
+```
+
+Notes:
+- Seeder now parses optional `background_image` and `clip` fields from CSV. If the game already exists, it updates missing media fields in place.
+- If your CSV lacks these fields, images/trailers may remain empty; consider enriching CSV or adding a separate backfill job.
+
+## Frontend UX Updates
+
+- Game cards are clickable; clicking an image opens the detail view via query param `?game_id=<id>`.
+- The app reads query params with `st.get_query_params()` to deep-link directly to a game.
+- If a game has `background_image`, it's shown in the detail view.
+- If a game has a `clip` URL, it is rendered with `st.video(...)`.
+- Platform filter is populated dynamically from the backend API.
+
+## New API Endpoints
+
+- `GET /api/platforms` → returns all platforms (name, slug, etc.) for dynamic filtering in the frontend.
+
+## Troubleshooting: Alembic config not found
+
+If you see:
+
+```bash
+FAILED: No config file 'alembic.ini' found, or file has no '[alembic]' section
+```
+
+Run Alembic with an explicit config path inside the container:
+
+```bash
+# Apply latest migrations using absolute path inside container
+docker compose exec backend alembic -c /app/src/backend/alembic.ini upgrade head
+
+# Or if using docker-compose v1
+docker-compose exec backend alembic -c /app/src/backend/alembic.ini upgrade head
+```
+
+If the path still fails, verify where the code is mounted:
+
+```bash
+docker compose exec backend ls -l /app/src/backend/alembic.ini
+```
+
 ## Logging
 
 All services are configured to send their logs to a central Fluentd container. The logs are stored in the `./logs` directory on the host machine.

@@ -127,6 +127,41 @@ Bu fonksiyon:
 - Mevcut verilere dokunmaz
 - Hata durumunda bilgi verir
 
+## ⚙️ Alembic ve Şema Migrasyonu Güvenliği
+
+Veri kaybını önlemek için şema değişikliklerini Alembic ile ve açık config yolu vererek uygulayın:
+
+```bash
+# En son migrasyonları uygula (container içinde tam yol kullan)
+docker compose exec backend \
+  alembic -c /app/src/backend/alembic.ini upgrade head
+
+# docker-compose v1 için
+docker-compose exec backend \
+  alembic -c /app/src/backend/alembic.ini upgrade head
+```
+
+Ardından CSV tohumlama (seed) ve mevcut kayıtlar için medya backfill işlemi:
+
+```bash
+# CSV'leri (data/raw) içeri al; mevcut oyunlarda background_image/clip boşsa doldurur
+docker compose run --rm seeder
+```
+
+Servisleri yeniden başlatın:
+
+```bash
+docker compose restart backend frontend
+```
+
+### Sorun Giderme
+- `FAILED: No config file 'alembic.ini'` hatası alırsanız, config yolunu mutlaka `-c /app/src/backend/alembic.ini` ile verin.
+- Yol yine bulunamazsa container içinde dosyanın konumunu doğrulayın:
+  ```bash
+  docker compose exec backend ls -l /app/src/backend/alembic.ini
+  ```
+- Volume'ları silen `down -v` komutunu yedek almadan kullanmayın.
+
 ## 📝 Best Practices
 
 1. **Her zaman `docker-compose down` kullanın** (volume'ları korur)
