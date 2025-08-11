@@ -26,16 +26,6 @@ services:
       retries: 5
 
 
-  fluentd:
-    image: fluent/fluentd:v1.16-1
-    container_name: game-insight-fluentd
-    volumes:
-      - ./fluentd:/fluentd/etc
-      - ./logs:/fluentd/log
-    ports:
-      - "24224:24224"
-      - "24224:24224/udp"
-
   backend:
     build:
       context: .
@@ -51,18 +41,16 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      fluentd:
-        condition: service_started
     env_file:
       - ./.env
     environment:
       - PYTHONPATH=/app
       - USE_ALEMBIC=1
     logging:
-      driver: "fluentd"
+      driver: "json-file"
       options:
-        fluentd-address: localhost:24224
-        tag: docker.{{.Name}}
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -81,17 +69,15 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      fluentd:
-        condition: service_started
     env_file:
       - ./.env
     environment:
       - PYTHONPATH=/app
     logging:
-      driver: "fluentd"
+      driver: "json-file"
       options:
-        fluentd-address: localhost:24224
-        tag: docker.{{.Name}}
+        max-size: "10m"
+        max-file: "3"
 
   celery-beat:
     build:
@@ -120,13 +106,12 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      fluentd:
-        condition: service_started  # fluentd has no healthcheck, so we use started
+    # Removed fluentd dependency; using json-file logging for Portainer
     logging:
-      driver: "fluentd"
+      driver: "json-file"
       options:
-        fluentd-address: localhost:24224
-        tag: docker.{{.Name}}
+        max-size: "10m"
+        max-file: "3"
 
   worker:
     build:
@@ -143,17 +128,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      fluentd:
-        condition: service_started
     env_file:
       - ./.env
     environment:
       - PYTHONPATH=/app
     logging:
-      driver: "fluentd"
+      driver: "json-file"
       options:
-        fluentd-address: localhost:24224
-        tag: docker.{{.Name}}
+        max-size: "10m"
+        max-file: "3"
 
   scheduler:
     build:
@@ -170,17 +153,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      fluentd:
-        condition: service_started
     env_file:
       - ./.env
     environment:
       - PYTHONPATH=/app
     logging:
-      driver: "fluentd"
+      driver: "json-file"
       options:
-        fluentd-address: localhost:24224
-        tag: docker.{{.Name}}
+        max-size: "10m"
+        max-file: "3"
 
   test:
     build:
@@ -190,8 +171,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      fluentd:
-        condition: service_started
     environment:
       - PYTHONPATH=/app
       - BACKEND_BASE_URL=http://backend:8000
@@ -217,17 +196,26 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      fluentd:
-        condition: service_started
     env_file:
       - ./.env
     environment:
       - PYTHONPATH=/app
     logging:
-      driver: "fluentd"
+      driver: "json-file"
       options:
-        fluentd-address: localhost:24224
-        tag: docker.{{.Name}}
+        max-size: "10m"
+        max-file: "3"
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: always
+    ports:
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
 
 volumes:
   postgres_data:
+  portainer_data:
