@@ -89,3 +89,4 @@ target/
 # csv
 *.csv
 !/.env.example
+/src/backend/alembic/versions/*
