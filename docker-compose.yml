@@ -31,7 +31,26 @@ services:
       context: .
       dockerfile: ./src/backend/Dockerfile
     container_name: game-insight-backend
-    command: sh /app/src/backend/docker-entrypoint.sh
+    command: >
+      sh -c "
+      echo 'PYTHONPATH: ' \"$${PYTHONPATH}\";
+      echo 'Applying database migrations (Alembic) if needed...';
+      if command -v alembic >/dev/null 2>&1; then
+        ATTEMPTS=0;
+        until [ $$ATTEMPTS -ge 5 ]; do
+          if alembic -c /app/src/backend/alembic.ini upgrade head; then
+            echo 'Alembic migrations applied successfully.'; break;
+          else
+            ATTEMPTS=$$((ATTEMPTS+1));
+            echo \"Alembic upgrade failed (attempt $$ATTEMPTS). Retrying in 5s...\";
+            sleep 5;
+          fi;
+        done;
+      else
+        echo 'Alembic command not found. Skipping migrations.';
+      fi;
+      exec uvicorn src.backend.main:app --host 0.0.0.0 --port 8000 --reload
+      "
     ports:
       - "8000:8000"
     volumes:
@@ -45,7 +64,7 @@ services:
       - ./.env
     environment:
       - PYTHONPATH=/app
-      - USE_ALEMBIC=1
+      - USE_ALEMBIC=0
     logging:
       driver: "json-file"
       options:
@@ -88,11 +107,21 @@ services:
       celery -A src.backend.celery_app beat 
       --loglevel=INFO 
       --scheduler redbeat.RedBeatScheduler
+    env_file:
+      - ./.env
     environment:
+      - PYTHONPATH=/app
       - CELERY_BROKER_URL=redis://redis:6379/0
     depends_on:
-      - redis
-      - db
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   frontend:
     build:
@@ -210,8 +239,9 @@ services:
     image: portainer/portainer-ce:latest
     container_name: portainer
     restart: always
+    command: --http-enabled
     ports:
-      - "9443:9443"
+      - "9000:9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
