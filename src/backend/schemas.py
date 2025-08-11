@@ -24,6 +24,13 @@ class Genre(GenreBase):
         from_attributes = True
 
 
+# --- Auth Schemas ---
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
 class PlatformBase(BaseModel):
     id: int
     name: str
@@ -78,6 +85,8 @@ class GameBase(BaseModel):
     ratings_count: Optional[int] = None
     metacritic: Optional[int] = None
     playtime: Optional[int] = None
+    background_image: Optional[str] = None
+    clip: Optional[str] = None
 
 
 class GameCreate(GameBase):

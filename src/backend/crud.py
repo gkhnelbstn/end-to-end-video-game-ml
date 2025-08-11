@@ -78,7 +78,13 @@ def create_game(db: Session, game: schemas.GameCreate):
         ratings_count=game.ratings_count,
         metacritic=game.metacritic,
         playtime=game.playtime,
+        background_image=game.background_image,
+        clip=game.clip,
     )
+
+    # Add the game to the session first so relationship appends are tracked
+    db.add(db_game)
+    db.flush()  # ensure PK is available for association tables
 
     # Handle genres, platforms, stores, and tags
     for genre_data in game.genres:
@@ -97,7 +103,17 @@ def create_game(db: Session, game: schemas.GameCreate):
         tag = get_or_create(db, models.Tag, id=tag_data.id, name=tag_data.name, slug=tag_data.slug)
         db_game.tags.append(tag)
 
-    db.add(db_game)
+    db.commit()
+    db.refresh(db_game)
+    return db_game
+
+
+def update_game_media(db: Session, db_game: models.Game, background_image: str | None, clip: str | None):
+    """Lightweight update for media fields only."""
+    if background_image:
+        db_game.background_image = background_image
+    if clip:
+        db_game.clip = clip
     db.commit()
     db.refresh(db_game)
     return db_game
@@ -159,13 +175,78 @@ def get_games_per_year(db: Session):
     """
     Gets the number of games released per year.
     """
-    return db.query(func.extract('year', models.Game.released), func.count(models.Game.id)).group_by(func.extract('year', models.Game.released)).all()
+    rows = (
+        db.query(func.extract('year', models.Game.released), func.count(models.Game.id))
+        .group_by(func.extract('year', models.Game.released))
+        .order_by(func.extract('year', models.Game.released))
+        .all()
+    )
+    result = []
+    for year, count in rows:
+        # year may be Decimal/float/None depending on dialect
+        y = int(year) if year is not None else None
+        result.append({"year": y, "count": int(count)})
+    return result
 
 def get_average_rating_by_genre(db: Session):
     """
     Gets the average rating for each genre.
     """
-    return db.query(models.Genre.name, func.avg(models.Game.rating)).join(models.Game.genres).group_by(models.Genre.name).all()
+    rows = (
+        db.query(models.Genre.name, func.avg(models.Game.rating))
+        .join(models.Game.genres)
+        .group_by(models.Genre.name)
+        .order_by(models.Genre.name)
+        .all()
+    )
+    return [{"genre": name, "avg_rating": float(avg) if avg is not None else None} for name, avg in rows]
+
+
+def get_rating_distribution(db: Session):
+    """
+    Gets the distribution of ratings grouped by rounded rating (nearest integer).
+    Uses Postgres-compatible single-arg round() and excludes null ratings.
+    """
+    rating_group = func.round(models.Game.rating).label("rating")
+    count_alias = func.count(models.Game.id).label("count")
+    rows = (
+        db.query(rating_group, count_alias)
+        .filter(models.Game.rating.isnot(None))
+        .group_by(rating_group)
+        .order_by(rating_group)
+        .all()
+    )
+    return [{"rating": int(r) if r is not None else None, "count": int(c)} for r, c in rows]
+
+
+def get_top_genres(db: Session, limit: int = 10):
+    """
+    Gets the top genres by number of games.
+    """
+    rows = (
+        db.query(models.Genre.name.label("name"), func.count(models.Game.id).label("count"))
+        .join(models.Game.genres)
+        .group_by(models.Genre.name)
+        .order_by(func.count(models.Game.id).desc())
+        .limit(limit)
+        .all()
+    )
+    return [{"name": name, "count": int(count)} for name, count in rows]
+
+
+def get_top_platforms(db: Session, limit: int = 10):
+    """
+    Gets the top platforms by number of games.
+    """
+    rows = (
+        db.query(models.Platform.name.label("name"), func.count(models.Game.id).label("count"))
+        .join(models.Game.platforms)
+        .group_by(models.Platform.name)
+        .order_by(func.count(models.Game.id).desc())
+        .limit(limit)
+        .all()
+    )
+    return [{"name": name, "count": int(count)} for name, count in rows]
 
 
 def update_game(db: Session, db_game: models.Game, game_update: schemas.GameCreate):

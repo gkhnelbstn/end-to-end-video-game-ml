@@ -1,7 +1,7 @@
 """Main FastAPI application for the Game Insight project."""
 
 import os
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
@@ -212,9 +212,18 @@ def get_game_details(game_id: int, db: Session = Depends(get_db)):
 def list_genres(db: Session = Depends(get_db)):
     return db.query(models.Genre).all()
 
+@app.get("/api/platforms", response_model=List[schemas.Platform])
+def list_platforms(db: Session = Depends(get_db)):
+    return db.query(models.Platform).all()
+
 # ------------------ User and Favorites Endpoints ------------------
 
-def get_current_user(db: Session = Depends(get_db)):
+def get_current_user(x_user_id: Optional[int] = Header(default=None), db: Session = Depends(get_db)):
+    # If frontend sends X-User-Id header, use that user if exists; otherwise fallback to a demo user
+    if x_user_id is not None:
+        user = db.query(models.User).filter(models.User.id == x_user_id).first()
+        if user:
+            return user
     return crud.get_user_by_email(db, email="test@example.com")
 
 @app.post("/api/users", response_model=schemas.User)
@@ -223,6 +232,19 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     return crud.create_user(db=db, user=user)
+
+# --- Auth ---
+@app.post("/api/auth/login")
+def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)):
+    user = crud.get_user_by_email(db, email=payload.email)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    from .security import verify_password
+    if not verify_password(payload.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    return {"id": user.id, "email": user.email}
 
 @app.post("/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
 def add_favorite(user_id: int, game_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -235,6 +257,26 @@ def add_favorite(user_id: int, game_id: int, db: Session = Depends(get_db), curr
 
     return crud.add_favorite_game(db=db, user=current_user, game=game)
 
+# Alias with API prefix for consistency
+@app.post("/api/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
+def add_favorite_api(user_id: int, game_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    game = db.query(models.Game).filter(models.Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    return crud.add_favorite_game(db=db, user=current_user, game=game)
+
+@app.get("/api/users/{user_id}/favorites", response_model=List[schemas.Game])
+def list_favorites(user_id: int, db: Session = Depends(get_db)):
+    # Ensure the user exists
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return crud.get_favorite_games(db=db, user=user)
+
 # Stats Endpoints
 @app.get("/api/stats/games-per-year")
 def get_games_per_year(db: Session = Depends(get_db)):
@@ -243,3 +285,15 @@ def get_games_per_year(db: Session = Depends(get_db)):
 @app.get("/api/stats/avg-rating-by-genre")
 def get_avg_rating_by_genre(db: Session = Depends(get_db)):
     return crud.get_average_rating_by_genre(db)
+
+@app.get("/api/stats/rating-distribution")
+def get_rating_distribution(db: Session = Depends(get_db)):
+    return crud.get_rating_distribution(db)
+
+@app.get("/api/stats/top-genres")
+def get_top_genres(limit: int = 10, db: Session = Depends(get_db)):
+    return crud.get_top_genres(db, limit=limit)
+
+@app.get("/api/stats/top-platforms")
+def get_top_platforms(limit: int = 10, db: Session = Depends(get_db)):
+    return crud.get_top_platforms(db, limit=limit)
