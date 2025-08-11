@@ -74,6 +74,9 @@ class Game(Base):
     ratings_count = Column(Integer)
     metacritic = Column(Integer)
     playtime = Column(Integer)
+    # Media fields
+    background_image = Column(String)
+    clip = Column(String)
 
     # Timestamps
     updated_at = Column(DateTime, onupdate=func.now())
