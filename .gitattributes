@@ -1,0 +1,20 @@
+# Enforce consistent line endings
+# Default to text auto-normalization
+* text=auto
+
+# Shell scripts should always be LF to avoid /bin/sh issues in Linux containers
+*.sh text eol=lf
+
+# SQL migrations and scripts: LF
+*.sql text eol=lf
+
+# Python, YAML, JSON typically LF
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+
+# Windows-specific scripts may use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
