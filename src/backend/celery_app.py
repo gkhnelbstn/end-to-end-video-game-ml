@@ -12,7 +12,7 @@ import os
 from celery import Celery
 from celery.signals import setup_logging as setup_celery_logging
 from dotenv import load_dotenv
-from .logging import setup_logging
+from .logger_config import setup_logging
 
 # Load environment variables from a .env file, if it exists.
 load_dotenv()

@@ -219,6 +219,11 @@ def seed_csv_file(db, csv_path: Path) -> tuple[int, int]:
                 created += 1
             except Exception as e:
                 print(f"Row error in {csv_path.name}: {e}")
+                # Ensure the session is usable for subsequent rows after an error
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
                 skipped += 1
                 continue
     print(f"Done {csv_path.name}: created={created}, skipped={skipped}")

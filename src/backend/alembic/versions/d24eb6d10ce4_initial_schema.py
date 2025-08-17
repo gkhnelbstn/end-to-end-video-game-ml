@@ -8,6 +8,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = 'd24eb6d10ce4'
@@ -18,8 +19,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Enums
-    userrole = sa.Enum('user', 'admin', name='userrole')
+    userrole = postgresql.ENUM('user', 'admin', name='userrole')
     userrole.create(op.get_bind(), checkfirst=True)
+    # Use a non-creating enum for column definitions to avoid duplicate type creation
+    userrole_nocreate = postgresql.ENUM('user', 'admin', name='userrole', create_type=False)
 
     # Core tables
     op.create_table(
@@ -80,7 +83,7 @@ def upgrade() -> None:
         sa.Column('email', sa.String(), nullable=False),
         sa.Column('hashed_password', sa.String(), nullable=False),
         sa.Column('is_active', sa.Boolean(), server_default=sa.text('true'), nullable=False),
-        sa.Column('role', userrole, server_default='user', nullable=False),
+        sa.Column('role', userrole_nocreate, server_default='user', nullable=False),
         sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
         sa.Column('updated_at', sa.DateTime(), nullable=True),
     )
@@ -161,5 +164,5 @@ def downgrade() -> None:
     op.drop_table('games')
 
     # Drop enum
-    userrole = sa.Enum('user', 'admin', name='userrole')
+    userrole = postgresql.ENUM('user', 'admin', name='userrole')
     userrole.drop(op.get_bind(), checkfirst=True)
