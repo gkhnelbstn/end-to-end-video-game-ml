@@ -235,6 +235,77 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  seed-on-empty:
+    build:
+      context: .
+      dockerfile: ./src/backend/Dockerfile # Use backend image environment
+    container_name: game-insight-seed-on-empty
+    command: >
+      sh -c "
+      python - <<'PY'
+      import os
+      from time import sleep
+      from src.backend.database import SessionLocal
+      from src.backend import models
+      from src.scripts.seed_from_csv import main as seed_main
+
+      # Wait for DB to be reachable via SQLAlchemy
+      for _ in range(60):
+          try:
+              db = SessionLocal()
+              try:
+                  count = db.query(models.Game).count()
+              finally:
+                  db.close()
+              break
+          except Exception as e:
+              print('Waiting for DB...', e)
+              sleep(2)
+      else:
+          print('DB not ready, exiting')
+          raise SystemExit(1)
+
+      # Check CSV directory
+      data_dir = os.environ.get('DATA_DIR', '/app/data/raw')
+      has_csv = False
+      try:
+          for name in os.listdir(data_dir):
+              if name.endswith('.csv'):
+                  has_csv = True
+                  break
+      except FileNotFoundError:
+          has_csv = False
+
+      if count == 0 and has_csv:
+          print('DB empty and CSVs found. Running seeder...')
+          seed_main()
+      elif count == 0 and not has_csv:
+          print('DB empty but no CSV files found under', data_dir)
+          print('Skipping seeding. You can add CSVs to data/raw and run: docker compose run --rm seeder')
+      else:
+          print(f'DB already has {count} games. Skipping seeding.')
+      PY
+      "
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+    depends_on:
+      backend:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    env_file:
+      - ./.env
+    environment:
+      - PYTHONPATH=/app
+      - DATA_DIR=/app/data/raw
+    profiles: ["init"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   portainer:
     image: portainer/portainer-ce:latest
     container_name: portainer

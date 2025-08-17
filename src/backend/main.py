@@ -13,7 +13,7 @@ from passlib.context import CryptContext
 
 from . import models, schemas, crud
 from .database import engine, get_db, SessionLocal
-from .logging import setup_logging
+from .logger_config import setup_logging
 from .admin import create_admin, setup_admin_views
 from .celery_app import celery_app
 from .celery_admin import CeleryMonitoringView

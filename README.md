@@ -70,6 +70,15 @@ This command will build the images and start all services in detached mode.
 -   **Celery Monitoring (Flower):** `http://localhost:5555`
 -   **Admin Panel:** `http://localhost:8000/admin`
 -   **Health Check:** `http://localhost:8000/health`
+-   **Portainer:** `http://localhost:9000`
+
+Optional: start with auto-seed on first run (if DB is empty and CSVs exist under `data/raw/`):
+
+```bash
+docker compose --profile init up -d
+```
+
+This enables the `seed-on-empty` helper service which checks the database and runs the CSV seeder automatically if appropriate.
 
 ## Database Migrations (Alembic)
 
@@ -110,6 +119,26 @@ docker compose run --rm seeder
 Notes:
 - Seeder now parses optional `background_image` and `clip` fields from CSV. If the game already exists, it updates missing media fields in place.
 - If your CSV lacks these fields, images/trailers may remain empty; consider enriching CSV or adding a separate backfill job.
+
+### Auto-seed on empty DB
+
+The compose file includes a helper service `seed-on-empty` (behind the `init` profile) that will:
+
+- Check if the database has zero rows in `games`.
+- Check if there are any `.csv` files under `data/raw/`.
+- If both conditions are met, it runs the same seeder logic as `seeder`.
+
+Usage:
+
+```bash
+# Bring up the stack and run the helper once on startup
+docker compose --profile init up -d
+
+# Or run only the helper
+docker compose --profile init up -d seed-on-empty
+```
+
+If the database is not empty or there are no CSV files, the helper will skip seeding and exit.
 
 ## Frontend UX Updates
 
@@ -177,6 +206,15 @@ This script will prompt you to enter an email and password for the new admin use
 Admin templates are loaded from `/app/src/backend/templates` inside the container.
 
 If you see a 500 error on list pages after upgrading SQLAdmin, avoid using legacy `column_filters` with raw model columns; use the new filter API or remove filters.
+
+### Default admin (created automatically)
+
+On API startup, if no admin user exists, the app creates a default admin:
+
+- Username: `admin`
+- Password: `adminpass`
+
+Change this in production. You can log into the admin panel with these credentials at `http://localhost:8000/admin`.
 
 ## Project Structure
 
