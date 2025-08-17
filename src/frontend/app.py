@@ -384,18 +384,7 @@ if page == "Dashboard":
         st.error(f"Failed to fetch statistics from the backend: {e}")
 
 
-# --- Health Check ---
-with st.expander("System Status"):
-    st.write(f"Attempting to connect to the backend API at `{BACKEND_URL}`...")
-    try:
-        response = httpx.get(f"{BACKEND_URL}/health")
-        response.raise_for_status()
-        if response.json().get("status") == "ok":
-            st.success("✅ Backend API is running and healthy!")
-        else:
-            st.error("❌ Backend API is not responding correctly.")
-    except httpx.RequestError:
-        st.error(f"❌ Failed to connect to the backend API.")
+# Health check UI removed per product decision
 
 if page == "Profile":
     st.header("User Profile")
