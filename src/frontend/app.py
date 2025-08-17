@@ -48,6 +48,75 @@ def _set_query_param(name: str, value: str):
         # As a last resort, ignore failures silently
         pass
 
+# --- Details rendering helpers and modal support ---
+def render_game_details(selected_game: dict) -> None:
+    """Render the details of a selected game. Used inside modal/expander.
+
+    Args:
+        selected_game: The game object returned from the backend.
+    """
+    if not selected_game:
+        st.info("No game selected.")
+        return
+
+    st.header(selected_game.get("name", "Unknown"))
+    rel_raw = selected_game.get("released")
+    rel_disp = (rel_raw[:10] if isinstance(rel_raw, str) and len(rel_raw) >= 10 else rel_raw) or "N/A"
+    rating_disp = selected_game.get("rating")
+    rating_disp = rating_disp if rating_disp is not None else "N/A"
+    meta = selected_game.get("metacritic")
+    meta_disp = meta if meta is not None else "N/A"
+    st.write(f"**Released:** {rel_disp}")
+    st.write(f"**Rating:** {rating_disp}")
+    st.write(f"**Metacritic:** {meta_disp}")
+
+    st.subheader("Genres")
+    st.write(", ".join([genre.get("name", "") for genre in selected_game.get("genres", [])]))
+
+    st.subheader("Platforms")
+    st.write(", ".join([platform.get("name", "") for platform in selected_game.get("platforms", [])]))
+
+    st.subheader("Stores")
+    st.write(", ".join([store.get("name", "") for store in selected_game.get("stores", [])]))
+
+    st.subheader("Tags")
+    st.write(", ".join([tag.get("name", "") for tag in selected_game.get("tags", [])]))
+
+    # --- Media ---
+    if selected_game.get("background_image"):
+        st.image(selected_game["background_image"], use_container_width=True)
+
+    st.subheader("Trailer")
+    clip_url = selected_game.get("clip")
+    if clip_url:
+        st.video(clip_url)
+    else:
+        st.info("Trailer not found.")
+
+    # --- Favorites ---
+    st.subheader("Favorites")
+    if "user_id" in st.session_state:
+        if st.button("Add to favorites"):
+            try:
+                headers = {"X-User-Id": str(st.session_state["user_id"])}
+                fav_resp = httpx.post(
+                    f"{BACKEND_URL}/api/users/{st.session_state['user_id']}/favorites/{selected_game.get('id')}",
+                    headers=headers,
+                )
+                fav_resp.raise_for_status()
+                st.success("Added to favorites!")
+            except httpx.HTTPError as e:
+                st.error(f"Failed to add favorite: {e}")
+    else:
+        st.info("Login to add this game to your favorites.")
+
+# Modal availability flag
+try:  # streamlit >= 1.27 approximately
+    st.dialog  # type: ignore[attr-defined]
+    _HAS_DIALOG = True
+except AttributeError:
+    _HAS_DIALOG = False
+
 game_id_value = _get_query_param("game_id", None)
 if game_id_value is not None:
     try:
@@ -57,7 +126,7 @@ if game_id_value is not None:
 
 # --- Sidebar for Filtering and Sorting ---
 st.sidebar.header("Navigation")
-page = st.sidebar.radio("Go to", ["Home", "Profile", "Register", "Login"])
+page = st.sidebar.radio("Go to", ["Home", "Dashboard", "Profile", "Register", "Login"])
 
 if "user_id" in st.session_state:
     st.sidebar.success(f"Logged in as {st.session_state.get('user_email', f'User #{st.session_state["user_id"]}')} ")
@@ -68,31 +137,32 @@ if "user_id" in st.session_state:
 else:
     st.sidebar.info("Not logged in")
 
-st.sidebar.header("Filter and Sort")
+if page == "Home":
+    st.sidebar.header("Filter and Sort")
 
-# Fetch genres and platforms for dropdowns
-try:
-    genres_response = httpx.get(f"{BACKEND_URL}/api/genres")
-    genres_response.raise_for_status()
-    genres = {genre["name"]: genre["slug"] for genre in genres_response.json()}
+    # Fetch genres and platforms for dropdowns
+    try:
+        genres_response = httpx.get(f"{BACKEND_URL}/api/genres")
+        genres_response.raise_for_status()
+        genres = {genre["name"]: genre["slug"] for genre in genres_response.json()}
 
-    platforms_response = httpx.get(f"{BACKEND_URL}/api/platforms")
-    platforms_response.raise_for_status()
-    platforms = {p["name"]: p["slug"] for p in platforms_response.json()}
+        platforms_response = httpx.get(f"{BACKEND_URL}/api/platforms")
+        platforms_response.raise_for_status()
+        platforms = {p["name"]: p["slug"] for p in platforms_response.json()}
 
-except httpx.HTTPError as e:
-    st.sidebar.error(f"Failed to fetch filter options: {e}")
-    genres = {}
-    platforms = {}
+    except httpx.HTTPError as e:
+        st.sidebar.error(f"Failed to fetch filter options: {e}")
+        genres = {}
+        platforms = {}
 
-genre_filter = st.sidebar.selectbox("Genre", ["All"] + list(genres.keys()))
-platform_filter = st.sidebar.selectbox("Platform", ["All"] + list(platforms.keys()))
-rating_filter = st.sidebar.slider("Minimum Rating", 0.0, 5.0, 0.0, 0.1)
-sort_by = st.sidebar.selectbox("Sort by", ["name", "released", "rating"], index=2)
-sort_order = st.sidebar.radio("Sort Order", ["asc", "desc"], index=1)
-search_query = st.sidebar.text_input("Search (optional)", "")
-list_mode = st.sidebar.radio("List mode", ["Pagination", "Load more"], index=0)
-page_size = st.sidebar.selectbox("Page size", [6, 9, 12, 15, 24], index=2)
+    genre_filter = st.sidebar.selectbox("Genre", ["All"] + list(genres.keys()))
+    platform_filter = st.sidebar.selectbox("Platform", ["All"] + list(platforms.keys()))
+    rating_filter = st.sidebar.slider("Minimum Rating", 0.0, 5.0, 0.0, 0.1)
+    sort_by = st.sidebar.selectbox("Sort by", ["name", "released", "rating"], index=2)
+    sort_order = st.sidebar.radio("Sort Order", ["asc", "desc"], index=1)
+    search_query = st.sidebar.text_input("Search (optional)", "")
+    list_mode = st.sidebar.radio("List mode", ["Pagination", "Load more"], index=0)
+    page_size = st.sidebar.selectbox("Page size", [6, 9, 12, 15, 24], index=2)
 
 
 # --- Main Content ---
@@ -222,60 +292,21 @@ if page == "Home":
                     st.rerun()
 
             if selected_game_id:
-                game_details_response = httpx.get(f"{BACKEND_URL}/api/games/{selected_game_id}")
-                game_details_response.raise_for_status()
-                selected_game = game_details_response.json()
+                try:
+                    game_details_response = httpx.get(f"{BACKEND_URL}/api/games/{selected_game_id}")
+                    game_details_response.raise_for_status()
+                    selected_game = game_details_response.json()
 
-                st.header(selected_game["name"])
-                rel_raw = selected_game.get('released')
-                rel_disp = (rel_raw[:10] if isinstance(rel_raw, str) and len(rel_raw) >= 10 else rel_raw) or 'N/A'
-                rating_disp = selected_game.get('rating')
-                rating_disp = rating_disp if rating_disp is not None else 'N/A'
-                meta = selected_game.get('metacritic')
-                meta_disp = meta if meta is not None else 'N/A'
-                st.write(f"**Released:** {rel_disp}")
-                st.write(f"**Rating:** {rating_disp}")
-                st.write(f"**Metacritic:** {meta_disp}")
-
-                st.subheader("Genres")
-                st.write(", ".join([genre["name"] for genre in selected_game.get("genres", [])]))
-
-                st.subheader("Platforms")
-                st.write(", ".join([platform["name"] for platform in selected_game.get("platforms", [])]))
-
-                st.subheader("Stores")
-                st.write(", ".join([store["name"] for store in selected_game.get("stores", [])]))
-
-                st.subheader("Tags")
-                st.write(", ".join([tag["name"] for tag in selected_game.get("tags", [])]))
-
-                # --- Media ---
-                if selected_game.get("background_image"):
-                    st.image(selected_game["background_image"], use_container_width=True)
-
-                st.subheader("Trailer")
-                clip_url = selected_game.get("clip")
-                if clip_url:
-                    st.video(clip_url)
-                else:
-                    st.info("Trailer bulunamadı.")
-
-                # --- Favorites ---
-                st.subheader("Favorites")
-                if "user_id" in st.session_state:
-                    if st.button("Add to favorites"):
-                        try:
-                            headers = {"X-User-Id": str(st.session_state["user_id"])}
-                            fav_resp = httpx.post(
-                                f"{BACKEND_URL}/api/users/{st.session_state['user_id']}/favorites/{selected_game_id}",
-                                headers=headers,
-                            )
-                            fav_resp.raise_for_status()
-                            st.success("Added to favorites!")
-                        except httpx.HTTPError as e:
-                            st.error(f"Failed to add favorite: {e}")
-                else:
-                    st.info("Login to add this game to your favorites.")
+                    if _HAS_DIALOG:
+                        @st.dialog("Game Details", width="large")
+                        def _show_details():
+                            render_game_details(selected_game)
+                        _show_details()
+                    else:
+                        with st.expander("Game Details", expanded=True):
+                            render_game_details(selected_game)
+                except httpx.HTTPError as e:
+                    st.error(f"Failed to fetch game details: {e}")
 
         else:
             st.warning("No games found for your search query.")
@@ -285,9 +316,12 @@ if page == "Home":
         st.error(f"An error occurred while requesting games: {e}")
 
 
-    # --- Data Visualizations ---
-    st.header("Data Visualizations")
+    # Data visualizations moved to Dashboard page
+    st.caption("Open the Dashboard page to view overall statistics and charts.")
 
+if page == "Dashboard":
+    st.header("Dashboard")
+    st.subheader("Data Visualizations")
     try:
         # Games per year
         games_per_year_response = httpx.get(f"{BACKEND_URL}/api/stats/games-per-year")
