@@ -143,7 +143,7 @@ If the database is not empty or there are no CSV files, the helper will skip see
 ## Frontend UX Updates
 
 - Game cards are clickable; clicking an image opens the detail view via query param `?game_id=<id>`.
-- The app reads query params with `st.get_query_params()` to deep-link directly to a game.
+- The app reads URL query params to deep-link directly to a game.
 - If a game has `background_image`, it's shown in the detail view.
 - If a game has a `clip` URL, it is rendered with `st.video(...)`.
 - Platform filter is populated dynamically from the backend API.

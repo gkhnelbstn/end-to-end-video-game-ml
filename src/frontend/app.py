@@ -13,10 +13,45 @@ st.set_page_config(page_title="Game Insight Dashboard", layout="wide")
 st.title("🎮 Game Insight Project")
 
 # Read query params for deep-linking into a game's detail
-query_params = st.get_query_params()
-if "game_id" in query_params:
+def _get_query_param(name: str, default=None):
+    """Compatibility helper for Streamlit query params across versions."""
     try:
-        st.session_state["selected_game_id"] = int(query_params["game_id"][0])
+        # Newer Streamlit (st.query_params exists)
+        qp = st.query_params  # type: ignore[attr-defined]
+    except AttributeError:
+        # Older Streamlit
+        qp = st.experimental_get_query_params()
+    try:
+        val = qp.get(name)
+        if isinstance(val, list):
+            return val[0] if val else default
+        return val if val is not None else default
+    except Exception:
+        return default
+
+def _set_query_param(name: str, value: str):
+    """Compatibility helper to set a single query param across Streamlit versions."""
+    # Prefer modern API when available
+    try:
+        qp = st.query_params  # type: ignore[attr-defined]
+        try:
+            qp[name] = value
+            return
+        except Exception:
+            pass
+    except AttributeError:
+        pass
+    # Fallback to experimental API
+    try:
+        st.experimental_set_query_params(**{name: value})
+    except Exception:
+        # As a last resort, ignore failures silently
+        pass
+
+game_id_value = _get_query_param("game_id", None)
+if game_id_value is not None:
+    try:
+        st.session_state["selected_game_id"] = int(game_id_value)
     except Exception:
         st.session_state["selected_game_id"] = None
 
@@ -163,8 +198,8 @@ if page == "Home":
                 if selected_game_name:
                     selected_game_id = game_options[selected_game_name]
                     st.session_state["selected_game_id"] = selected_game_id
-                    # Update URL for deep link
-                    st.experimental_set_query_params(game_id=selected_game_id)
+                    # Update URL for deep link (compat across Streamlit versions)
+                    _set_query_param("game_id", str(selected_game_id))
 
             # Pagination / Load more controls
             if list_mode == "Pagination":
