@@ -1,0 +1,7 @@
+# Keep the build context small: only pyproject.toml, uv.lock and src/ are needed.
+*
+!pyproject.toml
+!uv.lock
+!src
+**/__pycache__
+**/*.pyc

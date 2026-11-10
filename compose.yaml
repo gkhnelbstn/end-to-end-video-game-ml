@@ -1,0 +1,148 @@
+name: game-insight
+
+# Start everything with:  docker compose up --build
+# Settings come from an optional .env file (see .env.example); the defaults below
+# are for local development only.
+
+x-app: &app
+  image: game-insight-app
+  build:
+    context: .
+    target: app
+  environment: &app-env
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-game_insight}:${POSTGRES_PASSWORD:-game_insight}@db:5432/${POSTGRES_DB:-game_insight}
+    CELERY_BROKER_URL: redis://redis:6379/0
+    CELERY_RESULT_BACKEND: redis://redis:6379/0
+    RAWG_API_KEY: ${RAWG_API_KEY:-}
+    SECRET_KEY: ${SECRET_KEY:-dev-only-secret-change-me}
+    ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+    ADMIN_PASSWORD: ${ADMIN_PASSWORD:-adminpass}
+    USE_ALEMBIC: "1"
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-game_insight}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-game_insight}
+      POSTGRES_DB: ${POSTGRES_DB:-game_insight}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot: applies the Alembic migrations, then exits.
+  migrate:
+    <<: *app
+    command: alembic -c src/backend/alembic.ini upgrade head
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # One-shot: on an empty database, loads the bundled sample (data/raw/games.csv,
+  # about 16,500 games) so the dashboard has data without a RAWG key.
+  # Load every CSV instead with:  docker compose run --rm seed python -m src.scripts.seed_from_csv
+  seed:
+    <<: *app
+    command: python -m src.scripts.seed_from_csv --if-empty games.csv
+    environment:
+      <<: *app-env
+      DATA_DIR: /app/data/raw
+    volumes:
+      - ./data/raw:/app/data/raw:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  backend:
+    <<: *app
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    <<: *app
+    command: celery -A src.backend.celery_app worker --loglevel=info
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A src.backend.celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 20s
+
+  flower:
+    <<: *app
+    command: celery -A src.backend.celery_app flower --port=5555
+    ports:
+      - "${FLOWER_PORT:-5555}:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  frontend:
+    image: game-insight-frontend
+    build:
+      context: .
+      target: frontend
+    environment:
+      BACKEND_BASE_URL: http://backend:8000
+    ports:
+      - "${FRONTEND_PORT:-8501}:8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # Opt-in: queues RAWG ingestion for every month since 1980 (needs RAWG_API_KEY).
+  #   docker compose --profile backfill run --rm backfill [START_YEAR] [END_YEAR]
+  backfill:
+    <<: *app
+    profiles: ["backfill"]
+    entrypoint: ["python", "-m", "src.scripts.backfill_data"]
+    command: []
+    depends_on:
+      worker:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  postgres_data:

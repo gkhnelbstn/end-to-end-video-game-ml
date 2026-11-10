@@ -88,5 +88,9 @@ target/
 
 # csv
 *.csv
-!/.env.example
-/src/backend/alembic/versions/*
+
+# Tooling
+.venv/
+.ruff_cache/
+.pytest_cache/
+.claude/

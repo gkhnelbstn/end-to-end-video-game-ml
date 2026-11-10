@@ -1,23 +1,16 @@
-"""
-Logging configuration for the Game Insight project.
-"""
-import logging
-from pythonjsonlogger import jsonlogger
+"""Logging configuration."""
 
-def setup_logging():
-    """0
-    Sets up structured JSON logging for the application.
-    """
+import logging
+
+from pythonjsonlogger.json import JsonFormatter
+
+
+def setup_logging() -> None:
+    """Send structured JSON logs to stderr."""
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
+    logger.handlers.clear()
 
-    # Remove any existing handlers
-    if logger.hasHandlers():
-        logger.handlers.clear()
-
-    logHandler = logging.StreamHandler()
-    formatter = jsonlogger.JsonFormatter(
-        '%(asctime)s %(name)s %(levelname)s %(message)s'
-    )
-    logHandler.setFormatter(formatter)
-    logger.addHandler(logHandler)
+    handler = logging.StreamHandler()
+    handler.setFormatter(JsonFormatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+    logger.addHandler(handler)
