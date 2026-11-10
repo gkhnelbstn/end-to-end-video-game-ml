@@ -1,11 +1,16 @@
-import os
-import csv
+import argparse
 import ast
-from pathlib import Path
+import contextlib
+import csv
+import os
 from datetime import datetime
+from pathlib import Path
 
-from src.backend.database import SessionLocal
 from src.backend import crud, schemas
+from src.backend.database import SessionLocal
+
+# Some cells (platform requirements, tags) are far larger than csv's 128 KiB default.
+csv.field_size_limit(2**31 - 1)
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/app/data/raw")).resolve()
 
@@ -100,7 +105,7 @@ def to_game_create(row: dict) -> schemas.GameCreate | None:
                     if pid is None:
                         continue
                     platforms.append(
-                        schemas.PlatformCreate(
+                        schemas.Platform(
                             id=pid,
                             name=str(p.get("name")),
                             slug=str(p.get("slug")),
@@ -119,7 +124,7 @@ def to_game_create(row: dict) -> schemas.GameCreate | None:
                     if sid is None:
                         continue
                     stores.append(
-                        schemas.StoreCreate(
+                        schemas.Store(
                             id=sid,
                             name=str(s.get("name")),
                             slug=str(s.get("slug")),
@@ -136,7 +141,7 @@ def to_game_create(row: dict) -> schemas.GameCreate | None:
                     if gid is None:
                         continue
                     genres.append(
-                        schemas.GenreCreate(
+                        schemas.Genre(
                             id=gid,
                             name=str(g.get("name")),
                             slug=str(g.get("slug")),
@@ -153,7 +158,7 @@ def to_game_create(row: dict) -> schemas.GameCreate | None:
                     if tid is None:
                         continue
                     tags.append(
-                        schemas.TagCreate(
+                        schemas.Tag(
                             id=tid,
                             name=str(t.get("name")),
                             slug=str(t.get("slug")),
@@ -220,37 +225,49 @@ def seed_csv_file(db, csv_path: Path) -> tuple[int, int]:
             except Exception as e:
                 print(f"Row error in {csv_path.name}: {e}")
                 # Ensure the session is usable for subsequent rows after an error
-                try:
+                with contextlib.suppress(Exception):
                     db.rollback()
-                except Exception:
-                    pass
                 skipped += 1
                 continue
     print(f"Done {csv_path.name}: created={created}, skipped={skipped}")
     return created, skipped
 
 
-def main():
-    if not DATA_DIR.exists():
-        print(f"Data directory not found: {DATA_DIR}")
-        raise SystemExit(1)
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Load RAWG CSV exports into the database.")
+    parser.add_argument(
+        "pattern",
+        nargs="?",
+        default="*.csv",
+        help="glob of CSV files inside DATA_DIR to load (default: all of them)",
+    )
+    parser.add_argument(
+        "--if-empty",
+        action="store_true",
+        help="do nothing when the games table already has rows",
+    )
+    args = parser.parse_args()
 
-    csv_files = sorted(DATA_DIR.glob("*.csv"))
+    if not DATA_DIR.exists():
+        raise SystemExit(f"Data directory not found: {DATA_DIR}")
+
+    csv_files = sorted(DATA_DIR.glob(args.pattern))
     if not csv_files:
-        print(f"No CSV files found in {DATA_DIR}")
+        print(f"No CSV files matching {args.pattern!r} in {DATA_DIR}")
         return
 
     total_created = 0
     total_skipped = 0
 
-    db = SessionLocal()
-    try:
+    # Keep loaded look-up rows usable across commits instead of re-reading them per game.
+    with SessionLocal(expire_on_commit=False) as db:
+        if args.if_empty and (existing := crud.count_games(db)):
+            print(f"Database already has {existing} games; skipping seeding.")
+            return
         for csv_path in csv_files:
             c, s = seed_csv_file(db, csv_path)
             total_created += c
             total_skipped += s
-    finally:
-        db.close()
 
     print("Seeding complete.")
     print(f"Total created: {total_created}")

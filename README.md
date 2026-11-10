@@ -1,287 +1,206 @@
-# Game Insight Project
+# Game Insight
 
-This project is designed to collect, analyze, and model video game data from the [RAWG.io API](https://rawg.io/apidocs). The system periodically fetches game data, stores it in a database, visualizes it through a Streamlit-based interface, and uses machine learning models to generate insights and predictions (e.g., game popularity, sales figures).
+[![CI](https://github.com/gkhnelbstn/end-to-end-video-game-ml/actions/workflows/ci.yml/badge.svg)](https://github.com/gkhnelbstn/end-to-end-video-game-ml/actions/workflows/ci.yml)
 
-## Project Goals
+A small data platform for video game data. Celery tasks pull games from the
+[RAWG API](https://rawg.io/apidocs) into PostgreSQL, a FastAPI service exposes the data
+(search, filters, statistics, scheduled-task control), and a Streamlit dashboard browses it.
+The whole stack starts with one command.
 
--   **Data Ingestion:** Periodically fetch video game data from the RAWG API, handling rate limits gracefully.
--   **Data Storage:** Store the collected data in a structured PostgreSQL database.
--   **Data Visualization:** Provide data insights through a user-friendly dashboard built with Streamlit.
--   **Machine Learning:** Develop models to predict game popularity scores, market trends, or potential sales figures.
--   **User Management:** Implement a user registration and authentication system.
+> **Status.** The data pipeline, API, admin panel and dashboard work and are tested.
+> The machine-learning part (predicting ratings from the collected data) is **not
+> implemented yet**; it is on the [roadmap](#roadmap).
 
-## Tech Stack
+## Quickstart
 
-This project utilizes the following technologies and libraries:
-
--   **Backend:**
-    -   **Framework:** FastAPI
-    -   **Package Manager:** uv
-    -   **ORM:** SQLAlchemy
-    -   **Migrations:** Alembic
-    -   **Admin:** SQLAdmin
--   **Frontend:**
-    -   **Framework:** Streamlit
--   **Database:**
-    -   **System:** PostgreSQL 17
--   **Task Queue & Scheduling:**
-    -   **Task Manager:** Celery
-    -   **Monitoring:** Flower
--   **Logging & Monitoring:**
-    -   **Log Aggregation:** Fluentd
--   **Containerization:**
-    -   **Platform:** Docker & Docker Compose
--   **Testing:**
-    -   **Framework:** Pytest
-
-## Getting Started
-
-To run this project locally, you need to have Docker and Docker Compose installed.
-
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository-url>
-    cd <repository-name>
-    ```
-
-2.  **Set up the environment:**
-    - Create a `.env` file in the root of the project. You can use `.env.example` as a template.
-    - Update the environment variables in the `.env` file as needed.
-
-3.  **Install dependencies:**
-    - The project uses `uv` to manage dependencies. The dependencies for each service are defined in `requirements.in` files.
-    - To install all dependencies for local development, run:
-      ```bash
-      make requirements
-      ```
-    - If you change a `requirements.in` file, you need to regenerate the corresponding `.lock` file by running:
-      ```bash
-      make lock
-      ```
-
-4.  **Start the services using Docker Compose:**
-    ```bash
-    docker compose up --build -d
-    ```
-
-This command will build the images and start all services in detached mode.
--   **Backend API:** `http://localhost:8000`
--   **Frontend Dashboard:** `http://localhost:8501`
--   **Celery Monitoring (Flower):** `http://localhost:5555`
--   **Admin Panel:** `http://localhost:8000/admin`
--   **Health Check:** `http://localhost:8000/health`
--   **Portainer:** `http://localhost:9000`
-
-Optional: start with auto-seed on first run (if DB is empty and CSVs exist under `data/raw/`):
+Requires Docker with Compose v2.
 
 ```bash
-docker compose --profile init up -d
+git clone https://github.com/gkhnelbstn/end-to-end-video-game-ml.git
+cd end-to-end-video-game-ml
+docker compose up --build
 ```
 
-This enables the `seed-on-empty` helper service which checks the database and runs the CSV seeder automatically if appropriate.
+No configuration is needed for a first run. On an empty database the stack loads a
+bundled sample of about 16,500 games (`data/raw/games.csv`) in the background, which takes
+a few minutes; the dashboard is usable while it loads.
 
-## Database Migrations (Alembic)
+| What | URL |
+| --- | --- |
+| Dashboard (Streamlit) | http://localhost:8501 |
+| API docs (Swagger UI) | http://localhost:8000/docs |
+| Admin panel (SQLAdmin), `admin` / `adminpass` | http://localhost:8000/admin |
+| Scheduled-task manager | http://localhost:8000/task-management |
+| Flower (Celery monitoring) | http://localhost:5555 |
 
-Alembic is integrated and automatically runs on backend container startup. The Docker entrypoint applies `upgrade head` before launching the API. The database is persisted via a Docker volume, so rebuilding images will not reset data.
+To change ports, credentials or secrets, copy `.env.example` to `.env` and edit it.
+The defaults are for local development only: change `SECRET_KEY`, `ADMIN_PASSWORD` and
+the database password before exposing the stack anywhere.
 
-- Environment variable: `USE_ALEMBIC=1` is set for the backend service to disable `create_all` and delegate schema management to Alembic.
+The repository is large to clone (about 500 MB of CSV exports under `data/raw`).
 
-Common commands (run from repository root):
+### Getting a RAWG API key
+
+Live ingestion from RAWG needs an API key. Browsing the bundled sample does not.
+
+1. Create a free account at [rawg.io](https://rawg.io/signup).
+2. Request a key on the [API page](https://rawg.io/apidocs).
+3. Put it in `.env` (git-ignored; never commit a real key):
+
+   ```bash
+   cp .env.example .env
+   # then set RAWG_API_KEY=<your key> in .env
+   docker compose up -d
+   ```
+
+Without a key the fetch tasks fail with a clear `RAWG_API_KEY is not set` error and
+everything else keeps working.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    RAWG[RAWG API] -->|httpx| W[Celery worker]
+    CSV[(data/raw/*.csv)] -->|seed script| DB
+    B[FastAPI backend<br/>+ APScheduler] -->|enqueue tasks| R[(Redis)]
+    R --> W
+    W -->|SQLAlchemy| DB[(PostgreSQL)]
+    B -->|SQLAlchemy| DB
+    F[Streamlit dashboard] -->|HTTP| B
+    FL[Flower] --> R
+```
+
+| Compose service | Role |
+| --- | --- |
+| `db` | PostgreSQL 17. Data persists in the `postgres_data` volume. |
+| `redis` | Celery broker and result backend. |
+| `migrate` | One-shot: runs `alembic upgrade head`, then exits. |
+| `seed` | One-shot: loads `data/raw/games.csv` if the `games` table is empty. |
+| `backend` | FastAPI app: REST API, SQLAdmin panel, and an in-process APScheduler that enqueues the periodic Celery tasks. |
+| `worker` | Celery worker that runs the RAWG ingestion tasks. |
+| `flower` | Celery monitoring UI. |
+| `frontend` | Streamlit dashboard; talks only to the backend API. |
+| `backfill` | Opt-in (`--profile backfill`): queues ingestion for a range of years. |
+
+`backend`, `worker`, `flower`, `migrate` and `seed` share one image (`Dockerfile`, target
+`app`); the dashboard has its own (target `frontend`). Both are multi-stage builds that
+install the locked dependencies with uv and run as a non-root user.
+
+### Data flow
+
+- **Scheduled ingestion.** The backend's scheduler enqueues `fetch_weekly_updates_task`
+  every Monday (games updated in the last 7 days; existing rows are refreshed) and
+  `fetch_monthly_updates_task` on the 1st of each month (games released in the previous
+  month). Schedules live in memory: changes made through the task manager are lost when
+  the backend restarts, and the two defaults are recreated.
+- **Manual runs.** Any scheduled task can be run, paused or edited from
+  `/task-management` or the `/api/tasks/...` endpoints.
+- **Bulk loads.** `seed` imports RAWG CSV exports; `backfill` queues one RAWG fetch per
+  month for a range of years.
+
+### Database
+
+Defined in `src/backend/models.py`, migrated with Alembic (`src/backend/alembic`):
+
+- `games` with many-to-many links to `genres`, `platforms`, `stores` and `tags`
+  (ids are RAWG's ids)
+- `users` and their `user_favorite_games`
+- `admin_users` for the admin panel
+
+A test (`tests/test_migrations.py`) fails CI if the migrations and the models drift apart.
+
+### API overview
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/games` | List games. Query: `search`, `genre`, `platform` (slugs), `rating` (minimum), `sort_by` (`name`, `released`, `rating`, `metacritic`), `sort_order`, `skip`, `limit`. |
+| `GET /api/games/{id}` | One game with genres, platforms, stores and tags. |
+| `GET /api/genres`, `GET /api/platforms` | Filter options. |
+| `GET /api/stats/...` | `games-per-year`, `avg-rating-by-genre`, `rating-distribution`, `top-genres`, `top-platforms`. |
+| `POST /api/users`, `POST /api/auth/login` | Register and log in (dashboard accounts). |
+| `GET/POST /api/users/{id}/favorites[/{game_id}]` | Favorite games. |
+| `/api/tasks/...` | Inspect workers, run Celery tasks, manage scheduled tasks. |
+
+Full, interactive reference: http://localhost:8000/docs.
+
+**Limitations to know about.** Dashboard login is demo-grade: after login the dashboard
+identifies the user with an `X-User-Id` header, and there are no tokens or sessions. The
+`/api/tasks/...` endpoints are unauthenticated. This is fine on a laptop and not suitable
+for a public deployment as is.
+
+## Common tasks
 
 ```bash
-# Generate a new migration from current SQLAlchemy models
-docker compose run --rm backend \
-  alembic -c /app/src/backend/alembic.ini revision --autogenerate -m "your message"
+# Load every bundled CSV (about 139,000 games; takes a while)
+docker compose run --rm seed python -m src.scripts.seed_from_csv
 
-# Apply latest migrations
-docker compose run --rm backend \
-  alembic -c /app/src/backend/alembic.ini upgrade head
+# Queue RAWG ingestion for a range of years (needs RAWG_API_KEY)
+docker compose --profile backfill run --rm backfill 2023 2024
 
-# Show current DB revision
-docker compose run --rm backend \
-  alembic -c /app/src/backend/alembic.ini current
+# Create another admin panel account
+docker compose exec backend python -m src.backend.create_admin
+
+# Create a migration after changing the models, then apply it
+docker compose run --rm -v ./src:/app/src migrate \
+  alembic -c src/backend/alembic.ini revision --autogenerate -m "describe the change"
+docker compose up -d --build
+
+# Back up / restore the database
+docker compose exec -T db pg_dump -U game_insight game_insight > backup.sql
+docker compose exec -T db psql -U game_insight game_insight < backup.sql
+
+# Stop the stack (data is kept). Add -v to also delete the database volume.
+docker compose down
 ```
 
-Notes:
-- Alembic configuration and versions live under `src/backend/alembic/`.
-- Inside the container, project root is `/app`. Use absolute paths like `/app/src/backend/alembic.ini`.
-- If you develop outside Docker, ensure you have the same dependencies installed via `uv`.
+## Development
 
-## Seeder and Media Backfill
-
-Seed CSV data and backfill media fields:
+Requires [uv](https://docs.astral.sh/uv/); it installs Python 3.12 if needed.
 
 ```bash
-# Run seeder (parses CSV under data/raw). If a game exists, it backfills background_image/clip when available
-docker compose run --rm seeder
+uv sync                      # create .venv from uv.lock
+uv run pytest                # API and worker tests (SQLite, no services needed)
+uv run ruff check .          # lint
+uv run ruff format .         # format
+uv run pre-commit install    # run ruff on every commit
 ```
 
-Notes:
-- Seeder now parses optional `background_image` and `clip` fields from CSV. If the game already exists, it updates missing media fields in place.
-- If your CSV lacks these fields, images/trailers may remain empty; consider enriching CSV or adding a separate backfill job.
-
-### Auto-seed on empty DB
-
-The compose file includes a helper service `seed-on-empty` (behind the `init` profile) that will:
-
-- Check if the database has zero rows in `games`.
-- Check if there are any `.csv` files under `data/raw/`.
-- If both conditions are met, it runs the same seeder logic as `seeder`.
-
-Usage:
+The migration test needs PostgreSQL and is skipped unless `TEST_DATABASE_URL` is set.
+It wipes the database it is pointed at, so give it a scratch one:
 
 ```bash
-# Bring up the stack and run the helper once on startup
-docker compose --profile init up -d
-
-# Or run only the helper
-docker compose --profile init up -d seed-on-empty
+docker compose up -d db
+docker compose exec db createdb -U game_insight scratch
+TEST_DATABASE_URL=postgresql+psycopg://game_insight:game_insight@127.0.0.1:5433/scratch uv run pytest
 ```
 
-If the database is not empty or there are no CSV files, the helper will skip seeding and exit.
+CI (GitHub Actions) runs ruff, the test suite against a PostgreSQL service, and a
+`docker compose up` smoke test on every push and pull request.
 
-## Frontend UX Updates
-
-- Game cards are clickable; clicking an image opens the detail view via query param `?game_id=<id>`.
-- The app reads URL query params to deep-link directly to a game.
-- If a game has `background_image`, it's shown in the detail view.
-- If a game has a `clip` URL, it is rendered with `st.video(...)`.
-- Platform filter is populated dynamically from the backend API.
-
-## New API Endpoints
-
-- `GET /api/platforms` → returns all platforms (name, slug, etc.) for dynamic filtering in the frontend.
-
-## Troubleshooting: Alembic config not found
-
-If you see:
-
-```bash
-FAILED: No config file 'alembic.ini' found, or file has no '[alembic]' section
-```
-
-Run Alembic with an explicit config path inside the container:
-
-```bash
-# Apply latest migrations using absolute path inside container
-docker compose exec backend alembic -c /app/src/backend/alembic.ini upgrade head
-
-# Or if using docker-compose v1
-docker-compose exec backend alembic -c /app/src/backend/alembic.ini upgrade head
-```
-
-If the path still fails, verify where the code is mounted:
-
-```bash
-docker compose exec backend ls -l /app/src/backend/alembic.ini
-```
-
-## Logging
-
-All services are configured to send their logs to a central Fluentd container. The logs are stored in the `./logs` directory on the host machine.
-
-## Database Schema
-
-The database schema is defined using SQLAlchemy in `src/backend/models.py`. It includes the following main tables:
--   `games`: Stores the core information about each game.
--   `genres`, `platforms`, `stores`, `tags`: Look-up tables for related game data.
--   `users`: Stores user account information.
-
-The relationships between these tables are managed through association tables.
-
-## Admin Panel
-
-This project includes a web-based admin panel for managing database models, accessible at `http://localhost:8000/admin`.
-
-### Creating an Admin User
-
-To use the admin panel, you first need to create an admin user. You can do this by running the following command in your terminal:
-
-```bash
-docker compose exec backend python src/backend/create_admin.py
-```
-
-This script will prompt you to enter an email and password for the new admin user. Once created, you can use these credentials to log in to the admin panel.
-
-Admin templates are loaded from `/app/src/backend/templates` inside the container.
-
-If you see a 500 error on list pages after upgrading SQLAdmin, avoid using legacy `column_filters` with raw model columns; use the new filter API or remove filters.
-
-### Default admin (created automatically)
-
-On API startup, if no admin user exists, the app creates a default admin:
-
-- Username: `admin`
-- Password: `adminpass`
-
-Change this in production. You can log into the admin panel with these credentials at `http://localhost:8000/admin`.
-
-## Project Structure
-
-The project is organized based on the `cookiecutter-data-science` template. Service-specific code is located under the `src/` directory.
+### Project layout
 
 ```
-├── .env.example
-├── data
-│   ├── external
-│   ├── interim
-│   ├── processed
-│   └── raw
-├── docker-compose.yml
-├── Dockerfile.dev
-├── docs
-├── fluentd
-├── logs
-├── Makefile
-├── models
-├── notebooks
-├── references
-├── reports
-├── requirements.dev.in
-├── requirements.dev.lock
-├── src
-│   ├── backend
-│   │   ├── Dockerfile
-│   │   ├── requirements.in
-│   │   └── requirements.lock
-│   ├── frontend
-│   │   ├── Dockerfile
-│   │   ├── requirements.in
-│   │   └── requirements.lock
-│   └── worker
-│       ├── Dockerfile
-│       ├── requirements.in
-│       └── requirements.lock
-├── test_environment.py
-└── tests
+├── compose.yaml            # the whole stack
+├── Dockerfile              # multi-stage; targets: app, frontend
+├── pyproject.toml, uv.lock # dependencies (uv)
+├── data/raw/               # RAWG CSV exports used by the seed script
+├── notebooks/              # early exploration notebooks (not part of the stack)
+├── src/
+│   ├── backend/            # FastAPI app, models, Alembic migrations, admin, scheduler
+│   ├── worker/             # Celery tasks and the RAWG client
+│   ├── frontend/           # Streamlit dashboard
+│   └── scripts/            # seed_from_csv.py, backfill_data.py
+└── tests/
 ```
 
-## Project To-Do List / Roadmap
+## Roadmap
 
-1.  **Complete Data Ingestion and Storage:**
-    -   Full Data Parsing: Update the Celery tasks to parse the entire RAWG API response for each game and save all the data to the new database tables (platforms, stores, tags, etc.).
-    -   Historical Data Backfill: Create a script or a set of Celery tasks to fetch and save the data for all relevant past years (e.g., 1980-present).
-    -   Scheduled Tasks: Configure Celery Beat to run the fetch_monthly_updates_task and fetch_weekly_updates_task on a regular schedule.
-2.  **Enhance the Backend API:** (Completed)
-    -   Advanced Filtering: Improve the /api/games endpoint to allow filtering by genre, platform, rating, etc.
-    -   Sorting: Add sorting options to the /api/games endpoint (e.g., by release date, rating).
-    -   User-specific Endpoints: Create endpoints for users to manage their profiles, view their favorite games, etc.
-    -   API for Visualizations: Create dedicated endpoints to provide aggregated data for the charts and graphs on the frontend dashboard.
-3.  **Build out the Frontend Dashboard:**
-    -   Game Detail Page: Create a detailed view for each game, showing all its information (screenshots, platforms, stores, tags, etc.).
-    -   Advanced Filtering UI: Add UI elements (dropdowns, sliders) to the frontend to allow users to use the advanced API filtering.
-    -   Data Visualizations: Create interactive charts and graphs to visualize game data (e.g., number of games released per year, average rating by genre).
-    -   User Profile Page: Create a page where users can view and edit their profile information.
-4.  **Implement User Features:**
-    -   User Registration: Add a registration form to the Streamlit app.
-    -   "Favorite" Games: Allow users to mark games as favorites and view their list of favorite games.
-5.  **Machine Learning Models:**
-    -   Data Preparation: Create data pipelines to prepare the collected data for machine learning.
-    -   Model Training: Train the initial machine learning models (e.g., to predict game ratings).
-    -   **MLFlow Integration**: Integrate MLFlow to track experiments, log models, and manage the ML lifecycle.
-    -   Model Serving: Create API endpoints to serve predictions from the trained models.
-    -   Display Predictions: Integrate the model predictions into the frontend dashboard.
-6.  **Production-Readiness:**
-    -   Comprehensive Testing: Add more unit and integration tests for the backend and frontend.
-    -   CI/CD: Set up a Continuous Integration/Continuous Deployment pipeline to automate testing and deployment.
-    -   Security Hardening: Secure all endpoints, add more robust error handling, and manage secrets more securely (e.g., with a secrets manager).
+- Feature preparation and a first model that predicts a game's rating or Metacritic score
+  from the collected data; experiment tracking; a prediction endpoint and dashboard view.
+- Real authentication (tokens) for the dashboard and the task endpoints.
+- Persistent schedules for the task manager.
+
+## License
+
+MIT. See [LICENSE](LICENSE). Game data comes from [RAWG](https://rawg.io); check their
+terms of use before redistributing it.

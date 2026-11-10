@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # data/raw holds ~500 MB of CSV exports that CI does not need.
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/data/
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: game_insight
+          POSTGRES_PASSWORD: game_insight
+          POSTGRES_DB: game_insight_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U game_insight -d game_insight_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Used by tests/test_migrations.py to check Alembic against the models.
+      TEST_DATABASE_URL: postgresql+psycopg://game_insight:game_insight@127.0.0.1:5432/game_insight_test
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # data/raw holds ~500 MB of CSV exports that CI does not need.
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/data/
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run pytest -v
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # data/raw holds ~500 MB of CSV exports that CI does not need.
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/data/
+      - name: Build images and start the stack
+        run: docker compose up --build --detach --wait --wait-timeout 300
+      - name: Smoke test
+        run: |
+          curl --fail --silent http://localhost:8000/health
+          curl --fail --silent "http://localhost:8000/api/games?limit=1"
+          curl --fail --silent http://localhost:8000/api/tasks/workers
+          curl --fail --silent --output /dev/null http://localhost:8501/_stcore/health
+          curl --fail --silent --output /dev/null http://localhost:5555/
+      - name: Logs
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+      - name: Stop
+        if: always()
+        run: docker compose down --volumes

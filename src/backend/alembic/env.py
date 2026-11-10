@@ -1,8 +1,8 @@
 import os
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -16,7 +16,7 @@ if config.config_file_name is not None:
 # Import your metadata object here
 # from yourapp import yourmodel
 # target_metadata = yourmodel.Base.metadata
-from src.backend.models import Base  # type: ignore
+from src.backend.models import Base  # noqa: E402
 
 target_metadata = Base.metadata
 

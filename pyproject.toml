@@ -1,0 +1,65 @@
+[project]
+name = "game-insight"
+version = "0.2.0"
+description = "Collects video game data from the RAWG API with Celery, stores it in PostgreSQL, and serves it through a FastAPI backend and a Streamlit dashboard."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+# Runtime dependencies of the API, the Celery worker and Flower.
+dependencies = [
+    "alembic>=1.16",
+    "apscheduler>=3.11,<4",
+    "bcrypt>=4.3",
+    "celery[redis]>=5.5",
+    "fastapi>=0.118",
+    "flower>=2.0.1",
+    "httpx>=0.28",
+    "itsdangerous>=2.2",
+    "jinja2>=3.1",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.11",
+    "python-json-logger>=3.3",
+    "python-multipart>=0.0.20",
+    "sqladmin>=0.21",
+    # The asyncio extra pulls in greenlet, which SQLAdmin needs at import time.
+    # <2.1: SQLAdmin 0.32 cannot build forms for Float columns on SQLAlchemy 2.1.
+    "sqlalchemy[asyncio]>=2.0.43,<2.1",
+    "uvicorn[standard]>=0.37",
+]
+
+[dependency-groups]
+# Streamlit dashboard (its own container image).
+frontend = [
+    "httpx>=0.28",
+    "pandas>=2.3",
+    "streamlit>=1.50",
+]
+dev = [
+    # Starlette's TestClient transport.
+    "httpx2>=2.16",
+    "pre-commit>=4.3",
+    "pytest>=8.4",
+    "ruff>=0.14",
+]
+
+[tool.uv]
+# This is an application, not a library: nothing to build or publish.
+package = false
+default-groups = ["dev", "frontend"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["error::DeprecationWarning:src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection markers are meant to be called in defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Header", "fastapi.Query"]

@@ -1,141 +1,75 @@
-"""
-Pydantic models (schemas) for the Game Insight project.
+"""Pydantic schemas for API requests and responses."""
 
-These models define the shape of the data for API requests and responses,
-and for creating items in the database.
-"""
-from pydantic import BaseModel
-from typing import List, Optional
 from datetime import datetime
 
-
-class GenreBase(BaseModel):
-    name: str
-    slug: str
-    id: int
+from pydantic import BaseModel, ConfigDict
 
 
-class GenreCreate(GenreBase):
-    pass
+class _OrmModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
 
-class Genre(GenreBase):
-    class Config:
-        from_attributes = True
+class Lookup(_OrmModel):
+    """A genre, platform, store or tag. Extra RAWG fields are ignored."""
 
-
-# --- Auth Schemas ---
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class PlatformBase(BaseModel):
     id: int
     name: str
     slug: str
 
 
-class PlatformCreate(PlatformBase):
+# Kept as separate names so the OpenAPI schema stays descriptive.
+class Genre(Lookup):
     pass
 
 
-class Platform(PlatformBase):
-    class Config:
-        from_attributes = True
-
-
-class StoreBase(BaseModel):
-    id: int
-    name: str
-    slug: str
-
-
-class StoreCreate(StoreBase):
+class Platform(Lookup):
     pass
 
 
-class Store(StoreBase):
-    class Config:
-        from_attributes = True
-
-
-class TagBase(BaseModel):
-    id: int
-    name: str
-    slug: str
-
-
-class TagCreate(TagBase):
+class Store(Lookup):
     pass
 
 
-class Tag(TagBase):
-    class Config:
-        from_attributes = True
+class Tag(Lookup):
+    pass
 
 
 class GameBase(BaseModel):
     id: int
     slug: str
     name: str
-    released: Optional[datetime] = None
-    rating: Optional[float] = None
-    ratings_count: Optional[int] = None
-    metacritic: Optional[int] = None
-    playtime: Optional[int] = None
-    background_image: Optional[str] = None
-    clip: Optional[str] = None
+    released: datetime | None = None
+    rating: float | None = None
+    ratings_count: int | None = None
+    metacritic: int | None = None
+    playtime: int | None = None
+    background_image: str | None = None
+    clip: str | None = None
 
 
 class GameCreate(GameBase):
-    genres: List[GenreCreate] = []
-    platforms: List[PlatformCreate] = []
-    stores: List[StoreCreate] = []
-    tags: List[TagCreate] = []
+    genres: list[Genre] = []
+    platforms: list[Platform] = []
+    stores: list[Store] = []
+    tags: list[Tag] = []
 
 
-class Game(GameBase):
-    genres: List[Genre] = []
-    platforms: List[Platform] = []
-    stores: List[Store] = []
-    tags: List[Tag] = []
-
-    class Config:
-        from_attributes = True
+class Game(GameCreate, _OrmModel):
+    pass
 
 
-# --- Schemas for Stats ---
-
-class GamesPerYearStat(BaseModel):
-    year: int
-    count: int
-
-    class Config:
-        from_attributes = True
-
-
-class AvgRatingByGenreStat(BaseModel):
-    genre: str
-    avg_rating: float
-
-    class Config:
-        from_attributes = True
-
-
-class UserBase(BaseModel):
+class LoginRequest(BaseModel):
     email: str
-
-
-class UserCreate(UserBase):
     password: str
 
 
-class User(UserBase):
-    id: int
-    is_active: bool
-    favorite_games: List[Game] = []
+class UserCreate(BaseModel):
+    email: str
+    password: str
 
-    class Config:
-        from_attributes = True
+
+class User(_OrmModel):
+    id: int
+    email: str
+    is_active: bool
+    favorite_games: list[Game] = []

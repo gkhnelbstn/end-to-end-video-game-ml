@@ -1,52 +1,29 @@
 """
 Main Streamlit application for the Game Insight project dashboard.
 """
-import streamlit as st
+
+import os
+
 import httpx
 import pandas as pd
+import streamlit as st
 
-# The backend service is available at this DNS name within the Docker network.
-BACKEND_URL = "http://backend:8000"
+# Defaults to the backend's DNS name inside the Docker Compose network.
+BACKEND_URL = os.environ.get("BACKEND_BASE_URL", "http://backend:8000")
 
 st.set_page_config(page_title="Game Insight Dashboard", layout="wide")
 
 st.title("🎮 Game Insight Project")
 
-# Read query params for deep-linking into a game's detail
+
 def _get_query_param(name: str, default=None):
-    """Compatibility helper for Streamlit query params across versions."""
-    try:
-        # Newer Streamlit (st.query_params exists)
-        qp = st.query_params  # type: ignore[attr-defined]
-    except AttributeError:
-        # Older Streamlit
-        qp = st.experimental_get_query_params()
-    try:
-        val = qp.get(name)
-        if isinstance(val, list):
-            return val[0] if val else default
-        return val if val is not None else default
-    except Exception:
-        return default
+    """Read a query param (used to deep-link to a game's details)."""
+    return st.query_params.get(name, default)
+
 
 def _set_query_param(name: str, value: str):
-    """Compatibility helper to set a single query param across Streamlit versions."""
-    # Prefer modern API when available
-    try:
-        qp = st.query_params  # type: ignore[attr-defined]
-        try:
-            qp[name] = value
-            return
-        except Exception:
-            pass
-    except AttributeError:
-        pass
-    # Fallback to experimental API
-    try:
-        st.experimental_set_query_params(**{name: value})
-    except Exception:
-        # As a last resort, ignore failures silently
-        pass
+    st.query_params[name] = value
+
 
 # --- Details rendering helpers and modal support ---
 def render_game_details(selected_game: dict) -> None:
@@ -61,7 +38,9 @@ def render_game_details(selected_game: dict) -> None:
 
     st.header(selected_game.get("name", "Unknown"))
     rel_raw = selected_game.get("released")
-    rel_disp = (rel_raw[:10] if isinstance(rel_raw, str) and len(rel_raw) >= 10 else rel_raw) or "N/A"
+    rel_disp = (
+        rel_raw[:10] if isinstance(rel_raw, str) and len(rel_raw) >= 10 else rel_raw
+    ) or "N/A"
     rating_disp = selected_game.get("rating")
     rating_disp = rating_disp if rating_disp is not None else "N/A"
     meta = selected_game.get("metacritic")
@@ -74,7 +53,9 @@ def render_game_details(selected_game: dict) -> None:
     st.write(", ".join([genre.get("name", "") for genre in selected_game.get("genres", [])]))
 
     st.subheader("Platforms")
-    st.write(", ".join([platform.get("name", "") for platform in selected_game.get("platforms", [])]))
+    st.write(
+        ", ".join([platform.get("name", "") for platform in selected_game.get("platforms", [])])
+    )
 
     st.subheader("Stores")
     st.write(", ".join([store.get("name", "") for store in selected_game.get("stores", [])]))
@@ -110,26 +91,30 @@ def render_game_details(selected_game: dict) -> None:
     else:
         st.info("Login to add this game to your favorites.")
 
-# Modal availability flag
-try:  # streamlit >= 1.27 approximately
-    st.dialog  # type: ignore[attr-defined]
-    _HAS_DIALOG = True
-except AttributeError:
-    _HAS_DIALOG = False
 
+# A ?game_id=<id> link (the game cards use one) opens that game's details once.
 game_id_value = _get_query_param("game_id", None)
-if game_id_value is not None:
-    try:
+if game_id_value and st.session_state.get("opened_deep_link") != game_id_value:
+    st.session_state["opened_deep_link"] = game_id_value
+    if game_id_value.isdigit():
         st.session_state["selected_game_id"] = int(game_id_value)
-    except Exception:
-        st.session_state["selected_game_id"] = None
+
+
+def _on_game_selected():
+    name = st.session_state.get("game_select")
+    game_id = st.session_state.get("game_options", {}).get(name)
+    if game_id:
+        st.session_state["selected_game_id"] = game_id
+        st.session_state["opened_deep_link"] = str(game_id)
+        _set_query_param("game_id", str(game_id))
+
 
 # --- Sidebar for Filtering and Sorting ---
 st.sidebar.header("Navigation")
 page = st.sidebar.radio("Go to", ["Home", "Dashboard", "Profile", "Register", "Login"])
 
 if "user_id" in st.session_state:
-    st.sidebar.success(f"Logged in as {st.session_state.get('user_email', f'User #{st.session_state["user_id"]}')} ")
+    st.sidebar.success(f"Logged in as {st.session_state.get('user_email', 'user')}")
     if st.sidebar.button("Logout"):
         st.session_state.pop("user_id", None)
         st.session_state.pop("user_email", None)
@@ -204,13 +189,17 @@ if page == "Home":
         "rating": rating_filter,
         "sort_by": sort_by,
         "sort_order": sort_order,
-        "skip": ((st.session_state.page_number - 1) * page_size) if list_mode == "Pagination" else st.session_state.load_offset,
+        "skip": ((st.session_state.page_number - 1) * page_size)
+        if list_mode == "Pagination"
+        else st.session_state.load_offset,
         "limit": page_size,
     }
 
     # Fetch and display games
     try:
-        response = httpx.get(f"{BACKEND_URL}/api/games", params={k: v for k, v in params.items() if v is not None})
+        response = httpx.get(
+            f"{BACKEND_URL}/api/games", params={k: v for k, v in params.items() if v is not None}
+        )
         response.raise_for_status()
         games = response.json()
         display_games = []
@@ -242,34 +231,46 @@ if page == "Home":
                     if idx >= len(display_games):
                         break
                     g = display_games[idx]
-                    img_url = g.get("background_image") or g.get("backgroundImage") or "https://via.placeholder.com/320x180?text=No+Image"
+                    img_url = (
+                        g.get("background_image")
+                        or g.get("backgroundImage")
+                        or "https://placehold.co/320x180?text=No+Image"
+                    )
                     with row_cols[j]:
                         # Clickable image -> sets ?game_id=ID in query params
                         st.markdown(
-                            f"[![{g.get('name','')} ]({img_url})](?game_id={g['id']})",
+                            f"[![{g.get('name', '')} ]({img_url})](?game_id={g['id']})",
                             unsafe_allow_html=True,
                         )
                         # Title
                         st.markdown(f"**{g.get('name', 'Unknown')}**")
                         # Fields formatted
-                        rel_raw = g.get('released')
-                        rel_disp = (rel_raw[:10] if isinstance(rel_raw, str) and len(rel_raw) >= 10 else rel_raw) or 'N/A'
-                        rating_disp = g.get('rating')
-                        rating_disp = f"{rating_disp}" if rating_disp is not None else '-'
-                        meta = g.get('metacritic')
-                        meta_disp = f"{meta}" if meta is not None else '-'
-                        st.caption(f"Released: {rel_disp} | Rating: {rating_disp} | Metacritic: {meta_disp}")
+                        rel_raw = g.get("released")
+                        rel_disp = (
+                            rel_raw[:10]
+                            if isinstance(rel_raw, str) and len(rel_raw) >= 10
+                            else rel_raw
+                        ) or "N/A"
+                        rating_disp = g.get("rating")
+                        rating_disp = f"{rating_disp}" if rating_disp is not None else "-"
+                        meta = g.get("metacritic")
+                        meta_disp = f"{meta}" if meta is not None else "-"
+                        st.caption(
+                            f"Released: {rel_disp} | Rating: {rating_disp} | Metacritic: {meta_disp}"  # noqa: E501
+                        )
 
-            # Selection for details
-            selected_game_id = st.session_state.get("selected_game_id")
-            if not selected_game_id:
-                game_options = {game["name"]: game["id"] for game in display_games}
-                selected_game_name = st.selectbox("Select a game", list(game_options.keys()) if game_options else [])
-                if selected_game_name:
-                    selected_game_id = game_options[selected_game_name]
-                    st.session_state["selected_game_id"] = selected_game_id
-                    # Update URL for deep link (compat across Streamlit versions)
-                    _set_query_param("game_id", str(selected_game_id))
+            # Selection for details: nothing is selected until the user picks a game.
+            st.session_state["game_options"] = {g["name"]: g["id"] for g in display_games}
+            st.selectbox(
+                "Select a game to see its details",
+                list(st.session_state["game_options"]),
+                index=None,
+                placeholder="Choose a game",
+                key="game_select",
+                on_change=_on_game_selected,
+            )
+            # One-shot: the dialog opens for this run only, not on every later rerun.
+            selected_game_id = st.session_state.pop("selected_game_id", None)
 
             # Pagination / Load more controls
             if list_mode == "Pagination":
@@ -297,14 +298,11 @@ if page == "Home":
                     game_details_response.raise_for_status()
                     selected_game = game_details_response.json()
 
-                    if _HAS_DIALOG:
-                        @st.dialog("Game Details", width="large")
-                        def _show_details():
-                            render_game_details(selected_game)
-                        _show_details()
-                    else:
-                        with st.expander("Game Details", expanded=True):
-                            render_game_details(selected_game)
+                    @st.dialog("Game Details", width="large")
+                    def _show_details():
+                        render_game_details(selected_game)
+
+                    _show_details()
                 except httpx.HTTPError as e:
                     st.error(f"Failed to fetch game details: {e}")
 
@@ -314,7 +312,6 @@ if page == "Home":
         st.error(f"Failed to fetch games from the backend: {e}")
     except httpx.RequestError as e:
         st.error(f"An error occurred while requesting games: {e}")
-
 
     # Data visualizations moved to Dashboard page
     st.caption("Open the Dashboard page to view overall statistics and charts.")
@@ -341,7 +338,10 @@ if page == "Dashboard":
         avg_rating_by_genre_data = avg_rating_by_genre_response.json()
         if avg_rating_by_genre_data:
             df_avg_rating_by_genre = pd.DataFrame(avg_rating_by_genre_data)
-            if len(df_avg_rating_by_genre.columns) >= 2 and "genre" not in df_avg_rating_by_genre.columns:
+            if (
+                len(df_avg_rating_by_genre.columns) >= 2
+                and "genre" not in df_avg_rating_by_genre.columns
+            ):
                 df_avg_rating_by_genre.columns = ["genre", "avg_rating"]
             st.subheader("Average Rating by Genre")
             st.bar_chart(df_avg_rating_by_genre.set_index("genre"))
@@ -370,7 +370,9 @@ if page == "Dashboard":
             st.bar_chart(df_top_genres.set_index("name"))
 
         # Top platforms
-        top_platforms_response = httpx.get(f"{BACKEND_URL}/api/stats/top-platforms", params={"limit": 10})
+        top_platforms_response = httpx.get(
+            f"{BACKEND_URL}/api/stats/top-platforms", params={"limit": 10}
+        )
         top_platforms_response.raise_for_status()
         top_platforms_data = top_platforms_response.json()
         if top_platforms_data:
