@@ -77,7 +77,12 @@ jobs:
             /*
             !/data/
       - name: Build images and start the stack
-        run: docker compose up --build --detach --wait --wait-timeout 300
+        # --wait treats a container that exits as a failure, even with code 0, so wait
+        # on the long-running services only and run the one-shot seed separately.
+        run: |
+          docker compose build
+          docker compose up --detach --wait --wait-timeout 300 backend worker flower frontend
+          docker compose up --exit-code-from seed seed
       - name: Smoke test
         run: |
           curl --fail --silent http://localhost:8000/health
