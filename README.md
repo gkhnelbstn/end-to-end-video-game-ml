@@ -226,6 +226,9 @@ uv run jupyter nbconvert --to notebook --execute --inplace notebooks/metacritic-
 docker compose run --rm train
 ```
 
+Every `docker compose up` also runs `train` once, so each start registers a new model
+version; on unchanged data it is not promoted and the champion stays as it was.
+
 Training outside Docker works too; point it at the stack's database and MLflow:
 
 ```bash
