@@ -13,6 +13,9 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
+from src.ml import features
+from src.ml.serving import ModelUnavailableError, model_service
+
 from . import config, crud, models, schemas, security
 from .admin import create_admin, setup_admin_views
 from .celery_app import celery_app
@@ -200,6 +203,68 @@ def list_genres(db: DbSession):
 @app.get("/api/platforms", response_model=list[schemas.Platform])
 def list_platforms(db: DbSession):
     return crud.get_platforms(db)
+
+
+# ------------------ Metacritic predictions (MLflow champion model) ------------------
+
+
+def _predict(rows: list[dict]) -> list[float]:
+    try:
+        return model_service.predict(features.to_frame(rows))
+    except ModelUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/games/{game_id}/predicted-metacritic", response_model=schemas.MetacriticPrediction)
+def predict_game_metacritic(game: Annotated[models.Game, Depends(get_game_or_404)]):
+    """What the model expects this game to score, from its year, genres, platforms and tags."""
+    [prediction] = _predict([features.game_to_row(game)])
+    info = model_service.info()
+    return schemas.MetacriticPrediction(
+        predicted_metacritic=prediction,
+        model_name=info["model_name"],
+        model_version=info["version"],
+        game_id=game.id,
+        actual_metacritic=game.metacritic,
+    )
+
+
+@app.post("/api/predictions/metacritic", response_model=schemas.MetacriticPrediction)
+def predict_metacritic(game: schemas.GameFeatures):
+    """Predict a Metacritic score for a hypothetical game."""
+    row = {
+        "release_year": game.release_year,
+        "genres": features.join_names(game.genres),
+        "platforms": features.join_names(game.platforms),
+        "tags": features.join_names(game.tags),
+    }
+    [prediction] = _predict([row])
+    info = model_service.info()
+    return schemas.MetacriticPrediction(
+        predicted_metacritic=prediction,
+        model_name=info["model_name"],
+        model_version=info["version"],
+    )
+
+
+@app.get("/api/ml/model", response_model=schemas.ModelInfo)
+def model_info():
+    """The champion model currently served, with its evaluation metrics."""
+    try:
+        info = model_service.info()
+    except ModelUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return schemas.ModelInfo(model_version=info["version"], **info)
+
+
+@app.post("/api/ml/reload", response_model=schemas.ModelInfo)
+def reload_model():
+    """Re-resolve the champion alias now instead of waiting for the next refresh."""
+    try:
+        info = model_service.reload()
+    except ModelUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return schemas.ModelInfo(model_version=info["version"], **info)
 
 
 # ------------------ Users and favorites ------------------

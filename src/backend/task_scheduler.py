@@ -6,6 +6,7 @@ and manage periodic tasks that can be controlled via API endpoints.
 """
 
 import logging
+import os
 from typing import Any
 
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
@@ -16,8 +17,8 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from pydantic import BaseModel
 
-# Import Celery tasks
-from src.worker.tasks import example_task, fetch_monthly_updates_task, fetch_weekly_updates_task
+from src.worker import tasks
+from src.worker.sources import igdb
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +52,13 @@ class DynamicTaskScheduler:
 
         # Available task functions mapping
         self.available_tasks = {
-            "fetch_monthly_updates": fetch_monthly_updates_task,
-            "fetch_weekly_updates": fetch_weekly_updates_task,
-            "example_task": example_task,
+            "fetch_steam_games": tasks.fetch_steam_games_task,
+            "fetch_igdb_monthly_updates": tasks.fetch_igdb_monthly_updates_task,
+            "fetch_igdb_games_for_month": tasks.fetch_igdb_games_for_month_task,
+            "train_metacritic_model": tasks.train_metacritic_model_task,
+            "fetch_monthly_updates": tasks.fetch_monthly_updates_task,
+            "fetch_weekly_updates": tasks.fetch_weekly_updates_task,
+            "example_task": tasks.example_task,
         }
 
         # Add event listeners
@@ -79,25 +84,65 @@ class DynamicTaskScheduler:
             logger.info("Dynamic task scheduler stopped")
 
     async def _add_default_tasks(self):
-        """Add default periodic tasks."""
+        """Add default periodic tasks. Sources that need credentials only when they are set."""
         default_tasks = [
             TaskConfig(
-                id="monthly_updates",
-                name="Monthly Game Updates",
-                task_function="fetch_monthly_updates",
-                trigger_type="cron",
-                trigger_config={"day": 1, "hour": 0, "minute": 0},
-                description="Fetch monthly game updates on the 1st of each month",
-            ),
-            TaskConfig(
-                id="weekly_updates",
-                name="Weekly Game Updates",
-                task_function="fetch_weekly_updates",
+                id="steam_new_releases",
+                name="Steam New Releases",
+                task_function="fetch_steam_games",
                 trigger_type="cron",
                 trigger_config={"day_of_week": "mon", "hour": 0, "minute": 0},
-                description="Fetch weekly game updates every Monday",
+                kwargs={"list_name": "new", "limit": 100},
+                description="Fetch the newest Steam releases every Monday",
+            ),
+            TaskConfig(
+                id="steam_top_sellers",
+                name="Steam Top Sellers",
+                task_function="fetch_steam_games",
+                trigger_type="cron",
+                trigger_config={"day_of_week": "mon", "hour": 1, "minute": 0},
+                kwargs={"list_name": "topsellers", "limit": 100},
+                description="Refresh the Steam top sellers every Monday",
+            ),
+            TaskConfig(
+                id="retrain_metacritic_model",
+                name="Retrain Metacritic Model",
+                task_function="train_metacritic_model",
+                trigger_type="cron",
+                trigger_config={"day_of_week": "mon", "hour": 3, "minute": 0},
+                description="Retrain the Metacritic model on the latest data every Monday",
             ),
         ]
+        if igdb.is_configured():
+            default_tasks.append(
+                TaskConfig(
+                    id="igdb_monthly_updates",
+                    name="IGDB Monthly Updates",
+                    task_function="fetch_igdb_monthly_updates",
+                    trigger_type="cron",
+                    trigger_config={"day": 1, "hour": 0, "minute": 30},
+                    description="Fetch last month's releases from IGDB on the 1st of each month",
+                )
+            )
+        if os.environ.get("RAWG_API_KEY"):
+            default_tasks += [
+                TaskConfig(
+                    id="monthly_updates",
+                    name="RAWG Monthly Updates",
+                    task_function="fetch_monthly_updates",
+                    trigger_type="cron",
+                    trigger_config={"day": 1, "hour": 0, "minute": 0},
+                    description="Fetch last month's releases from RAWG on the 1st of each month",
+                ),
+                TaskConfig(
+                    id="weekly_updates",
+                    name="RAWG Weekly Updates",
+                    task_function="fetch_weekly_updates",
+                    trigger_type="cron",
+                    trigger_config={"day_of_week": "mon", "hour": 0, "minute": 0},
+                    description="Fetch games RAWG updated in the last week, every Monday",
+                ),
+            ]
 
         for task_config in default_tasks:
             await self.add_task(task_config)

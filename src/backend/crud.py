@@ -17,29 +17,40 @@ _SCALAR_FIELDS = (
     "rating",
     "ratings_count",
     "metacritic",
+    "critic_rating",
     "playtime",
     "background_image",
     "clip",
 )
+_SOURCE_IDS = ("steam_appid", "igdb_id")
 
 
-def _get_or_create_lookup(db: Session, model, item: schemas.Lookup):
-    """Return the look-up row with this RAWG id, creating it if needed."""
+def _get_or_create_lookup(db: Session, model, item: schemas.LookupIn):
+    """Return the matching look-up row, creating it if needed."""
     # Bulk loads touch the same few thousand rows over and over; remember them per session.
     cache = db.info.setdefault("lookup_cache", {})
-    if (cached := cache.get((model, item.id))) is not None:
+    key = (model, item.id if item.id is not None else item.slug)
+    if (cached := cache.get(key)) is not None:
         return cached
-    instance = cache[(model, item.id)] = _find_or_create_lookup(db, model, item)
+    instance = cache[key] = _find_or_create_lookup(db, model, item)
     return instance
 
 
-def _find_or_create_lookup(db: Session, model, item: schemas.Lookup):
-    instance = db.get(model, item.id)
+def _find_or_create_lookup(db: Session, model, item: schemas.LookupIn):
+    # Only RAWG data carries ids from our id space. Steam's genre "1" is not RAWG's genre 1.
+    instance = db.get(model, item.id) if item.id is not None else None
     if instance is None:
-        # RAWG has a few entries that share a name or slug under different ids;
-        # both columns are unique here, so reuse the existing row.
+        # Match by slug or name. This also covers RAWG entries that share a name or slug
+        # under different ids (both columns are unique here).
         instance = db.scalar(
-            select(model).where(or_(model.slug == item.slug, model.name == item.name)).limit(1)
+            select(model)
+            .where(
+                or_(
+                    model.slug == item.slug,
+                    func.lower(model.name) == item.name.lower(),
+                )
+            )
+            .limit(1)
         )
     if instance is None:
         instance = model(id=item.id, name=item.name, slug=item.slug)
@@ -48,11 +59,23 @@ def _find_or_create_lookup(db: Session, model, item: schemas.Lookup):
     return instance
 
 
+def _lookups(db: Session, model, items: list[schemas.LookupIn]) -> list:
+    rows = [_get_or_create_lookup(db, model, item) for item in items]
+    # Sources occasionally repeat an entry; a duplicate would violate the association PK.
+    return list({row.id: row for row in rows}.values())
+
+
 def _set_relations(db: Session, db_game: models.Game, game: schemas.GameCreate) -> None:
     for attr, model in _RELATIONS.items():
-        # RAWG occasionally repeats an entry; a duplicate would violate the association PK.
-        unique = {item.id: item for item in getattr(game, attr)}
-        setattr(db_game, attr, [_get_or_create_lookup(db, model, i) for i in unique.values()])
+        setattr(db_game, attr, _lookups(db, model, getattr(game, attr)))
+
+
+def _add_relations(db: Session, db_game: models.Game, game: schemas.GameCreate) -> None:
+    for attr, model in _RELATIONS.items():
+        current = getattr(db_game, attr)
+        known = {row.id for row in current}
+        new_rows = _lookups(db, model, getattr(game, attr))
+        current.extend(row for row in new_rows if row.id not in known)
 
 
 def get_game(db: Session, game_id: int) -> models.Game | None:
@@ -101,10 +124,59 @@ def get_games(
     return list(db.scalars(stmt.offset(skip).limit(limit)))
 
 
+def find_matching_game(db: Session, game: schemas.GameCreate) -> models.Game | None:
+    """Find the row that already represents this game, from this or another source.
+
+    In order: the source's own id, then the slug, then the same name with the same
+    release year (a game is only merged across sources when both agree).
+    """
+    if game.id is not None and (row := db.get(models.Game, game.id)) is not None:
+        return row
+    for field in _SOURCE_IDS:
+        value = getattr(game, field)
+        if value is not None:
+            row = db.scalar(select(models.Game).where(getattr(models.Game, field) == value))
+            if row is not None:
+                return row
+
+    year = game.released.year if game.released else None
+    candidates = db.scalars(
+        select(models.Game).where(or_(models.Game.slug == game.slug, models.Game.name == game.name))
+    ).all()
+    for row in candidates:
+        row_year = row.released.year if row.released else None
+        same_year = year is None or row_year is None or row_year == year
+        # Never merge two different games that both have an id from the same source.
+        compatible_ids = all(
+            getattr(row, f) is None or getattr(game, f) in (None, getattr(row, f))
+            for f in _SOURCE_IDS
+        )
+        if same_year and compatible_ids:
+            return row
+    return None
+
+
+def _free_slug(db: Session, game: schemas.GameCreate) -> str:
+    """The game's slug, made unique if another game already uses it."""
+    if get_game_by_slug(db, game.slug) is None:
+        return game.slug
+    suffixes = [str(game.released.year)] if game.released else []
+    suffixes += [f"steam-{game.steam_appid}"] if game.steam_appid else []
+    suffixes += [f"igdb-{game.igdb_id}"] if game.igdb_id else []
+    for suffix in suffixes:
+        candidate = f"{game.slug}-{suffix}"
+        if get_game_by_slug(db, candidate) is None:
+            return candidate
+    n = 2
+    while get_game_by_slug(db, f"{game.slug}-{n}") is not None:
+        n += 1
+    return f"{game.slug}-{n}"
+
+
 def create_game(db: Session, game: schemas.GameCreate) -> models.Game:
     """Create a game together with its genres, platforms, stores and tags."""
-    db_game = models.Game(id=game.id, slug=game.slug)
-    for field in _SCALAR_FIELDS:
+    db_game = models.Game(id=game.id, slug=_free_slug(db, game))
+    for field in (*_SCALAR_FIELDS, *_SOURCE_IDS):
         setattr(db_game, field, getattr(game, field))
     db.add(db_game)
     _set_relations(db, db_game, game)
@@ -113,15 +185,56 @@ def create_game(db: Session, game: schemas.GameCreate) -> models.Game:
 
 
 def update_game(db: Session, db_game: models.Game, game: schemas.GameCreate) -> models.Game:
-    """Overwrite an existing game with fresh data. Missing media fields are kept."""
+    """Overwrite an existing game with fresh data from the same source.
+
+    Missing media fields are kept.
+    """
     for field in _SCALAR_FIELDS:
         value = getattr(game, field)
         if value is None and field in ("background_image", "clip"):
             continue
         setattr(db_game, field, value)
+    for field in _SOURCE_IDS:
+        if getattr(game, field) is not None:
+            setattr(db_game, field, getattr(game, field))
     _set_relations(db, db_game, game)
     db.commit()
     return db_game
+
+
+def merge_game(db: Session, db_game: models.Game, game: schemas.GameCreate) -> models.Game:
+    """Enrich a game with data from another source: fill gaps, add genres/tags/platforms.
+
+    Values the row already has are kept, so one source never overwrites another.
+    """
+    for field in (*_SCALAR_FIELDS, *_SOURCE_IDS):
+        if getattr(db_game, field) is None and getattr(game, field) is not None:
+            setattr(db_game, field, getattr(game, field))
+    _add_relations(db, db_game, game)
+    db.commit()
+    return db_game
+
+
+def upsert_game(
+    db: Session, game: schemas.GameCreate, source_field: str | None = None
+) -> tuple[models.Game, str]:
+    """Insert, refresh or enrich a game. Returns the row and "created", "updated" or "merged".
+
+    `source_field` names the id field of the source the data comes from ("steam_appid",
+    "igdb_id", or None for RAWG, whose id is the row id). When the matched row came from
+    the same source, the fresh data replaces the old; otherwise it only fills gaps.
+    """
+    existing = find_matching_game(db, game)
+    if existing is None:
+        return create_game(db, game), "created"
+    same_source = (
+        game.id is not None and existing.id == game.id
+        if source_field is None
+        else getattr(existing, source_field) == getattr(game, source_field)
+    )
+    if same_source:
+        return update_game(db, existing, game), "updated"
+    return merge_game(db, existing, game), "merged"
 
 
 def update_game_media(

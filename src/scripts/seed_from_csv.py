@@ -28,7 +28,8 @@ def parse_int(value):
     if value in (None, "", "null", "None"):
         return None
     try:
-        return int(value)
+        # pandas wrote integer columns that contain blanks as floats ("92.0").
+        return int(float(value))
     except Exception:
         return None
 
@@ -105,7 +106,7 @@ def to_game_create(row: dict) -> schemas.GameCreate | None:
                     if pid is None:
                         continue
                     platforms.append(
-                        schemas.Platform(
+                        schemas.LookupIn(
                             id=pid,
                             name=str(p.get("name")),
                             slug=str(p.get("slug")),
@@ -124,7 +125,7 @@ def to_game_create(row: dict) -> schemas.GameCreate | None:
                     if sid is None:
                         continue
                     stores.append(
-                        schemas.Store(
+                        schemas.LookupIn(
                             id=sid,
                             name=str(s.get("name")),
                             slug=str(s.get("slug")),
@@ -141,7 +142,7 @@ def to_game_create(row: dict) -> schemas.GameCreate | None:
                     if gid is None:
                         continue
                     genres.append(
-                        schemas.Genre(
+                        schemas.LookupIn(
                             id=gid,
                             name=str(g.get("name")),
                             slug=str(g.get("slug")),
@@ -158,7 +159,7 @@ def to_game_create(row: dict) -> schemas.GameCreate | None:
                     if tid is None:
                         continue
                     tags.append(
-                        schemas.Tag(
+                        schemas.LookupIn(
                             id=tid,
                             name=str(t.get("name")),
                             slug=str(t.get("slug")),
@@ -205,17 +206,17 @@ def seed_csv_file(db, csv_path: Path) -> tuple[int, int]:
                     skipped += 1
                     continue
 
-                existing = crud.get_game_by_slug(db, slug)
-                if existing:
-                    # Backfill media if missing and CSV provides it
-                    bg = game_create.background_image
-                    cl = game_create.clip
-                    should_update = False
-                    if bg and not getattr(existing, "background_image", None):
-                        should_update = True
-                    if cl and not getattr(existing, "clip", None):
-                        should_update = True
-                    if should_update:
+                existing = crud.find_matching_game(db, game_create)
+                if existing is not None and existing.id != game_create.id:
+                    # The same game, already ingested from Steam or IGDB: fill its gaps.
+                    crud.merge_game(db, existing, game_create)
+                    skipped += 1
+                    continue
+                if existing is not None:
+                    # Already seeded: backfill media fields the row is missing.
+                    bg = None if existing.background_image else game_create.background_image
+                    cl = None if existing.clip else game_create.clip
+                    if bg or cl:
                         crud.update_game_media(db, existing, bg, cl)
                     skipped += 1
                     continue
