@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { api, ApiError } from "./api";
 import type { User } from "./types";
 
 const STORAGE_KEY = "game-insight-user";
@@ -43,6 +44,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* ignore */
     }
   }, []);
+  // A remembered user can outlive the database (e.g. after `docker compose down -v`).
+  useEffect(() => {
+    if (!user) return;
+    api.favorites(user.id).catch((error) => {
+      if (error instanceof ApiError && error.status === 404) signOut();
+    });
+  }, [user, signOut]);
   const value = useMemo(() => ({ user, signIn, signOut }), [user, signIn, signOut]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

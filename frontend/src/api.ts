@@ -6,6 +6,7 @@ import type {
   ModelInfo,
   NameCount,
   Prediction,
+  Summary,
   User,
 } from "./types";
 
@@ -17,6 +18,14 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+export const UNREACHABLE =
+  "Can't reach the API. Make sure the backend is running (docker compose up), then try again.";
+
+/** True when the request never got an answer from the backend. */
+export function isUnreachable(error: unknown): boolean {
+  return error instanceof ApiError && error.message === UNREACHABLE;
 }
 
 function detailMessage(body: unknown, fallback: string): string {
@@ -33,10 +42,20 @@ async function request<T>(path: string, init: RequestInit & { userId?: number } 
   const headers = new Headers(init.headers);
   if (init.body) headers.set("Content-Type", "application/json");
   if (init.userId !== undefined) headers.set("X-User-Id", String(init.userId));
-  const response = await fetch(path, { ...init, headers });
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, headers });
+  } catch {
+    // fetch only rejects when no response arrived at all (server down, network gone).
+    throw new ApiError(0, UNREACHABLE);
+  }
   const body = response.headers.get("content-type")?.includes("json")
-    ? await response.json()
+    ? await response.json().catch(() => null)
     : null;
+  if (response.status === 502 || response.status === 503 || response.status === 504) {
+    // nginx or the Vite proxy answered, but the backend behind it did not.
+    if (!body) throw new ApiError(response.status, UNREACHABLE);
+  }
   if (!response.ok) {
     throw new ApiError(response.status, detailMessage(body, `${response.status} ${response.statusText}`));
   }
@@ -69,8 +88,13 @@ export const api = {
   gamesPerYear: () => request<{ year: number; count: number }[]>("/api/stats/games-per-year"),
   topGenres: (limit = 12) => request<NameCount[]>(`/api/stats/top-genres?limit=${limit}`),
   topPlatforms: (limit = 12) => request<NameCount[]>(`/api/stats/top-platforms?limit=${limit}`),
+  topStores: (limit = 12) => request<NameCount[]>(`/api/stats/top-stores?limit=${limit}`),
+  esrbRatings: () => request<NameCount[]>("/api/stats/esrb-ratings"),
   avgRatingByGenre: () =>
     request<{ genre: string; avg_rating: number }[]>("/api/stats/avg-rating-by-genre"),
+  summary: () => request<Summary>("/api/stats/summary"),
+  metacriticDistribution: () =>
+    request<{ band: number; count: number }[]>("/api/stats/metacritic-distribution"),
 
   register: (email: string, password: string) =>
     request<User>("/api/users", { method: "POST", body: JSON.stringify({ email, password }) }),

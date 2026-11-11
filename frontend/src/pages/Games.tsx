@@ -1,18 +1,52 @@
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 import { api } from "../api";
-import { Cover, Notice, Score, year } from "../components/ui";
+import GameCard from "../components/GameCard";
+import { ErrorNotice, fmt, Notice } from "../components/ui";
 import { useAsync, useDebounced } from "../hooks";
 import type { GameQuery } from "../types";
 
 const PAGE_SIZE = 24;
 const SORTS: { value: string; label: string }[] = [
   { value: "metacritic:desc", label: "Metacritic, high to low" },
-  { value: "rating:desc", label: "User rating, high to low" },
+  { value: "metacritic:asc", label: "Metacritic, low to high" },
   { value: "released:desc", label: "Newest first" },
   { value: "released:asc", label: "Oldest first" },
+  { value: "rating:desc", label: "User rating" },
   { value: "name:asc", label: "Name, A to Z" },
 ];
+
+function Summary() {
+  const summary = useAsync(api.summary, []);
+  const s = summary.data;
+  if (!s) return null;
+  return (
+    <div className="hero-stats">
+      <div>
+        <strong>{fmt(s.games)}</strong>
+        <span>games</span>
+      </div>
+      <div>
+        <strong>{fmt(s.with_metacritic)}</strong>
+        <span>with a Metacritic score</span>
+      </div>
+      {s.avg_metacritic !== null && (
+        <div>
+          <strong>{s.avg_metacritic}</strong>
+          <span>average score</span>
+        </div>
+      )}
+      {s.first_year && s.last_year && (
+        <div>
+          <strong>
+            {s.first_year}–{s.last_year}
+          </strong>
+          <span>release years</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Games() {
   // Filters live in the URL so a filtered view can be shared and survives reloads.
@@ -20,6 +54,7 @@ export default function Games() {
   const search = params.get("q") ?? "";
   const genre = params.get("genre") ?? "";
   const platform = params.get("platform") ?? "";
+  const scored = params.get("scored") === "1";
   const sort = params.get("sort") ?? SORTS[0].value;
   const page = Math.max(1, Number(params.get("page") ?? 1));
   const debouncedSearch = useDebounced(search);
@@ -43,37 +78,42 @@ export default function Games() {
         search: debouncedSearch || undefined,
         genre: genre || undefined,
         platform: platform || undefined,
+        scored: scored || undefined,
         sort_by: sortBy,
         sort_order: sortOrder,
         skip: (page - 1) * PAGE_SIZE,
         limit: PAGE_SIZE,
       }),
-    [debouncedSearch, genre, platform, sort, page],
+    [debouncedSearch, genre, platform, scored, sort, page],
   );
+  const filtered = Boolean(search || genre || platform || scored);
 
   return (
     <>
-      <div className="page-head">
+      <section className="hero">
         <div>
-          <h1>Games</h1>
-          <p className="subtle" style={{ margin: 0 }}>
-            Browse the catalogue. Open a game to see what the model predicts for it.
+          <p className="eyebrow">Video game catalogue</p>
+          <h1>What do critics think, and what would a model guess?</h1>
+          <p className="lede">
+            Browse games from RAWG, Steam and IGDB. Every game page shows its Metacritic score next to the score a
+            model predicts from what was known before release.
           </p>
         </div>
-      </div>
+        <Summary />
+      </section>
 
-      <div className="filters">
+      <div className="toolbar">
         <label className="field search">
-          Search
+          <span className="sr-only">Search</span>
           <input
             type="search"
-            placeholder="Game name"
+            placeholder="Search games…"
             value={search}
             onChange={(e) => update({ q: e.target.value })}
           />
         </label>
         <label className="field">
-          Genre
+          <span className="sr-only">Genre</span>
           <select value={genre} onChange={(e) => update({ genre: e.target.value })}>
             <option value="">All genres</option>
             {genres.data?.map((g) => (
@@ -84,7 +124,7 @@ export default function Games() {
           </select>
         </label>
         <label className="field">
-          Platform
+          <span className="sr-only">Platform</span>
           <select value={platform} onChange={(e) => update({ platform: e.target.value })}>
             <option value="">All platforms</option>
             {platforms.data?.map((p) => (
@@ -94,8 +134,8 @@ export default function Games() {
             ))}
           </select>
         </label>
-        <label className="field" style={{ gridColumn: "span 2" }}>
-          Sort
+        <label className="field">
+          <span className="sr-only">Sort</span>
           <select value={sort} onChange={(e) => update({ sort: e.target.value })}>
             {SORTS.map((s) => (
               <option key={s.value} value={s.value}>
@@ -104,53 +144,45 @@ export default function Games() {
             ))}
           </select>
         </label>
+        <label className="toggle">
+          <input type="checkbox" checked={scored} onChange={(e) => update({ scored: e.target.checked ? "1" : "" })} />
+          Scored only
+        </label>
+        {filtered && (
+          <button className="ghost small" onClick={() => setParams({}, { replace: true })}>
+            Clear
+          </button>
+        )}
       </div>
 
-      {games.error && <Notice kind="error">Could not load games: {games.error.message}</Notice>}
+      {games.error && <ErrorNotice error={games.error} onRetry={games.reload} prefix="Could not load games" />}
       {games.loading && !games.data && (
         <div className="game-grid">
-          {Array.from({ length: 8 }, (_, i) => (
-            <div className="skeleton" key={i} />
+          {Array.from({ length: 12 }, (_, i) => (
+            <div className="skeleton card-skeleton" key={i} />
           ))}
         </div>
       )}
       {games.data && games.data.length === 0 && <Notice>No games match these filters.</Notice>}
       {games.data && games.data.length > 0 && (
-        <div className="game-grid" style={{ opacity: games.loading ? 0.6 : 1 }}>
+        <div className={`game-grid${games.loading ? " is-loading" : ""}`}>
           {games.data.map((game) => (
-            <Link to={`/games/${game.id}`} className="game-card" key={game.id}>
-              <Cover game={game} />
-              <div className="game-card-body">
-                <span className="game-card-title">{game.name}</span>
-                <div className="chips">
-                  {game.genres.slice(0, 3).map((g) => (
-                    <span className="chip" key={g.id}>
-                      {g.name}
-                    </span>
-                  ))}
-                </div>
-                <div className="meta-row">
-                  <span>{year(game.released)}</span>
-                  <Score value={game.metacritic} title="Metacritic" />
-                </div>
-              </div>
-            </Link>
+            <GameCard game={game} key={game.id} />
           ))}
         </div>
       )}
 
-      <nav className="pager" aria-label="Pages">
-        <button disabled={page <= 1} onClick={() => update({ page: String(page - 1) })}>
-          Previous
-        </button>
-        <span>Page {page}</span>
-        <button
-          disabled={!games.data || games.data.length < PAGE_SIZE}
-          onClick={() => update({ page: String(page + 1) })}
-        >
-          Next
-        </button>
-      </nav>
+      {games.data && (page > 1 || games.data.length === PAGE_SIZE) && (
+        <nav className="pager" aria-label="Pages">
+          <button disabled={page <= 1} onClick={() => update({ page: String(page - 1) })}>
+            ← Previous
+          </button>
+          <span>Page {page}</span>
+          <button disabled={games.data.length < PAGE_SIZE} onClick={() => update({ page: String(page + 1) })}>
+            Next →
+          </button>
+        </nav>
+      )}
     </>
   );
 }

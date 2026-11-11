@@ -144,12 +144,12 @@ A test (`tests/test_migrations.py`) fails CI if the migrations and the models dr
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/games` | List games. Query: `search`, `genre`, `platform` (slugs), `rating` (minimum), `sort_by` (`name`, `released`, `rating`, `metacritic`), `sort_order`, `skip`, `limit`. |
+| `GET /api/games` | List games. Query: `search`, `genre`, `platform` (slugs), `rating` (minimum), `scored` (only games with a Metacritic score), `sort_by` (`name`, `released`, `rating`, `metacritic`), `sort_order`, `skip`, `limit`. |
 | `GET /api/games/{id}` | One game with genres, platforms, stores and tags. |
 | `GET /api/genres`, `GET /api/platforms` | Filter options. |
-| `GET /api/stats/...` | `games-per-year`, `avg-rating-by-genre`, `rating-distribution`, `top-genres`, `top-platforms`. |
+| `GET /api/stats/...` | `summary`, `games-per-year`, `metacritic-distribution`, `avg-rating-by-genre` (unrated games excluded), `rating-distribution`, `top-genres`, `top-platforms`, `top-stores`, `esrb-ratings`. |
 | `GET /api/games/{id}/predicted-metacritic` | The champion model's prediction for a stored game, next to its actual score. |
-| `POST /api/predictions/metacritic` | Prediction for a hypothetical game: `{"release_year": 2025, "genres": ["RPG"], "platforms": ["PC"], "tags": ["Singleplayer"]}`. |
+| `POST /api/predictions/metacritic` | Prediction for a hypothetical game; every field is optional: `{"name": "Starfall III", "release_year": 2025, "release_month": 11, "esrb_rating": "Mature", "genres": ["RPG"], "platforms": ["PC"], "stores": ["Steam"], "tags": ["Singleplayer"]}`. |
 | `GET /api/ml/model`, `POST /api/ml/reload` | Which model version is served and its metrics; re-check the `champion` alias now. |
 | `POST /api/users`, `POST /api/auth/login` | Register and log in (dashboard accounts). |
 | `GET /api/users/{id}/favorites`, `POST`/`DELETE /api/users/{id}/favorites/{game_id}` | List, add and remove favorite games. |
@@ -165,15 +165,20 @@ for a public deployment as is.
 ## Machine learning
 
 **Task.** Predict a game's Metacritic score (0 to 100) from what is known before reviews
-come in: release year, genres, platforms and tags. Labels are the games in the database
-that have a Metacritic score (5,116 of the 16,520 seeded games; Steam adds more).
+come in: the title, release year and month, ESRB rating, genres, platforms, stores and
+tags. Labels are the games in the database that have a Metacritic score (5,116 of the
+16,520 games in `games.csv`; loading every CSV and the Steam ingestion add more).
 User ratings, ratings counts and playtime are deliberately not used: they are only known
 after release, and Steam and IGDB rows do not have them.
 
 **Pipeline** (`src/ml`):
 
-- `features.py`: one-hot genres, platforms and tags, their counts, and the release year
-  (with a missing-year flag); indicators present in fewer than ~0.5% of games are dropped.
+- `features.py`: one-hot genres, platforms, stores and tags with their counts; the release
+  year (with a missing-year flag) and quarter; the ESRB rating (only the RAWG data has
+  one, so Steam and IGDB rows get "unknown"); and signals from the title: a sequel number
+  ("Halo 3", "Final Fantasy VII", "Diablo II: ..."), a subtitle, re-release words
+  (Remastered, HD, Collection, Definitive, ...) and its words, which pick up franchises.
+  Indicators present in fewer than ~0.5% of games are dropped.
 - `train.py`: holds out ~20% of games as a test set chosen by a hash of the game id (a
   game never moves between train and test as data grows, so model versions are compared
   fairly), compares a mean-score baseline, Ridge regression and histogram gradient
@@ -183,8 +188,11 @@ after release, and Steam and IGDB rows do not have them.
   the alias every 60 seconds (`MODEL_REFRESH_SECONDS`), so a newly promoted version is
   served without a restart. Without a model, prediction endpoints answer 503.
 - Dashboard: each game's page shows the predicted next to the actual score, and the
-  **Score predictor** page shows the served model's metrics and predicts a score for any
-  combination of year, genres, platforms and tags.
+  **Predictor** page shows the served model's metrics and predicts a score for any
+  combination of those inputs.
+- Older model versions keep working after the inputs grew: MLflow passes a model only the
+  columns in its signature, so a champion trained on fewer inputs is still served and is
+  still compared fairly against a new candidate.
 
 **What MLflow records for every training run** (experiment `metacritic-prediction`):
 one parent run with dataset size per source, the logged training dataset, the best
@@ -201,13 +209,15 @@ games), from `notebooks/metacritic-analysis.ipynb`:
 | Model | CV MAE | Test MAE | Test R² |
 | --- | --- | --- | --- |
 | Mean baseline | 8.62 | 8.28 | 0.00 |
-| Ridge | 7.79 | 7.69 | 0.13 |
-| Histogram gradient boosting (selected) | 7.23 | 7.13 | 0.23 |
+| Ridge | 7.72 | 7.62 | 0.15 |
+| Histogram gradient boosting (selected) | 7.10 | 6.97 | 0.27 |
 
-The model is 14% better than always guessing the mean, but metadata explains only a small
+The model is 16% better than always guessing the mean, but metadata explains only a small
 part of the score: it is off by about 7 points on average and pulls extreme scores toward
-the middle (games scored above 90 are under-predicted by about 13 points). Tags are the
-most informative input, then platforms and release year.
+the middle (games scored above 90 are under-predicted by about 11 points). Tags are the
+most informative input, then platforms, release year, genres, stores and the title; the
+release month adds nothing measurable. With only release year, genres, platforms and tags
+the same model had a test MAE of 7.13 and R² of 0.23, so the extra inputs help, modestly.
 
 ![Predicted vs actual Metacritic on held-out games](reports/figures/predicted_vs_actual.png)
 
@@ -308,9 +318,11 @@ npm test           # component tests (Vitest, API mocked)
 npm run build      # type check + production build into dist/
 ```
 
-Pages: games (search, genre/platform filters, sorting; filters live in the URL), a page
-per game with its scores, the model's prediction and a favourite toggle, statistics,
-the score predictor, and sign-in/registration with a favourites list.
+Pages: games (headline numbers, search, genre/platform filters, a "scored only" toggle,
+sorting; filters live in the URL), a page per game with its Metacritic score and the
+model's prediction on one 0-100 scale, statistics, the predictor, and
+sign-in/registration with a favourites list. When the API cannot be reached the
+dashboard says so and offers a retry. It follows the OS light/dark setting.
 
 ### Project layout
 

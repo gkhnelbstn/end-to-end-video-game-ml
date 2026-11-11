@@ -1,14 +1,21 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export interface Async<T> {
   data: T | undefined;
   error: Error | undefined;
   loading: boolean;
+  /** Run the loader again (e.g. a Retry button after an error). */
+  reload: () => void;
 }
 
 /** Run an async loader whenever `deps` change; ignores results from stale runs. */
 export function useAsync<T>(load: () => Promise<T>, deps: unknown[]): Async<T> {
-  const [state, setState] = useState<Async<T>>({ data: undefined, error: undefined, loading: true });
+  const [attempt, setAttempt] = useState(0);
+  const [state, setState] = useState<Omit<Async<T>, "reload">>({
+    data: undefined,
+    error: undefined,
+    loading: true,
+  });
   useEffect(() => {
     let current = true;
     setState((s) => ({ ...s, loading: true, error: undefined }));
@@ -19,8 +26,9 @@ export function useAsync<T>(load: () => Promise<T>, deps: unknown[]): Async<T> {
     return () => {
       current = false;
     };
-  }, deps);
-  return state;
+  }, [...deps, attempt]);
+  const reload = useCallback(() => setAttempt((n) => n + 1), []);
+  return { ...state, reload };
 }
 
 /** A value that only updates after `delay` ms without changes (for search boxes). */

@@ -3,11 +3,11 @@ import { Link, useParams } from "react-router-dom";
 
 import { api, ApiError } from "../api";
 import { useAuth } from "../auth";
-import { Notice, Score } from "../components/ui";
+import { ErrorNotice, fmt, Notice, Score, ScoreScale } from "../components/ui";
 import { useAsync } from "../hooks";
 import type { Game } from "../types";
 
-function Names({ items }: { items: { id: number; name: string }[] }) {
+function Chips({ items }: { items: { id: number; name: string }[] }) {
   if (items.length === 0) return <span className="subtle">–</span>;
   return (
     <div className="chips">
@@ -20,36 +20,64 @@ function Names({ items }: { items: { id: number; name: string }[] }) {
   );
 }
 
-function Prediction({ game }: { game: Game }) {
+function ScorePanel({ game }: { game: Game }) {
   const prediction = useAsync(() => api.predictedMetacritic(game.id), [game.id]);
-  if (prediction.loading) return <p className="subtle">Asking the model…</p>;
-  if (prediction.error) {
-    const unavailable = prediction.error instanceof ApiError && prediction.error.status === 503;
-    return (
-      <p className="subtle">
-        {unavailable ? "No trained model is available yet." : `Prediction failed: ${prediction.error.message}`}
-      </p>
-    );
-  }
-  const p = prediction.data!;
-  const diff = game.metacritic !== null ? p.predicted_metacritic - game.metacritic : null;
+  const model = useAsync(api.model, []);
+  const p = prediction.data;
+  const mae = model.data?.metrics.test_mae;
+  const diff = p && game.metacritic !== null ? p.predicted_metacritic - game.metacritic : null;
+
   return (
-    <>
-      <div className="score-block">
-        <Score value={p.predicted_metacritic} big title="Predicted Metacritic" />
-        <div>
-          <strong>Predicted</strong>
-          <small>
-            model v{p.model_version}
-            {diff !== null && ` · ${diff > 0 ? "+" : ""}${diff.toFixed(1)} vs actual`}
-          </small>
+    <div className="panel">
+      <h2>Scores</h2>
+      <div className="score-pair">
+        <div className="score-item">
+          <Score value={game.metacritic} size="lg" title="Metacritic" />
+          <div>
+            <strong>Metacritic</strong>
+            <small>{game.metacritic === null ? "not scored" : "critics' score"}</small>
+          </div>
+        </div>
+        <div className="score-item">
+          {p ? (
+            <Score value={p.predicted_metacritic} size="lg" title="Predicted Metacritic" />
+          ) : (
+            <span className="score none lg">{prediction.loading ? "…" : "–"}</span>
+          )}
+          <div>
+            <strong>Predicted</strong>
+            <small>
+              {p
+                ? `model v${p.model_version}${diff !== null ? ` · ${diff > 0 ? "+" : ""}${diff.toFixed(1)} vs actual` : ""}`
+                : prediction.loading
+                  ? "asking the model…"
+                  : "unavailable"}
+            </small>
+          </div>
         </div>
       </div>
-      <p className="subtle" style={{ fontSize: "0.85rem", margin: "0.6rem 0 0" }}>
-        Estimated from release year, genres, platforms and tags only. See the{" "}
-        <Link to="/predict">Score predictor</Link> for how accurate that is.
-      </p>
-    </>
+      {(game.metacritic !== null || p) && (
+        <ScoreScale actual={game.metacritic} predicted={p?.predicted_metacritic} spread={p ? mae : null} />
+      )}
+      {prediction.error &&
+        (prediction.error instanceof ApiError && prediction.error.status === 503 ? (
+          <Notice>No trained model is available yet.</Notice>
+        ) : (
+          <ErrorNotice error={prediction.error} onRetry={prediction.reload} prefix="Prediction failed" />
+        ))}
+      {game.critic_rating !== null && (
+        <p className="subtle small">
+          IGDB critics average: <strong>{Math.round(game.critic_rating)}</strong>
+        </p>
+      )}
+      {p && (
+        <p className="subtle small">
+          The model only sees the title, release date, ESRB rating, genres, platforms, stores and tags, not reviews or
+          sales.{mae !== undefined && ` The shaded band is ± its average miss (${mae.toFixed(1)} points).`}{" "}
+          <Link to="/predict">How it works</Link>
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -68,9 +96,9 @@ function FavoriteButton({ gameId }: { gameId: number }) {
 
   if (!user) {
     return (
-      <p className="subtle">
-        <Link to="/login">Sign in</Link> to save favourites.
-      </p>
+      <Link to="/login" className="button ghost">
+        ☆ Sign in to save
+      </Link>
     );
   }
   const toggle = async () => {
@@ -85,8 +113,8 @@ function FavoriteButton({ gameId }: { gameId: number }) {
   };
   return (
     <>
-      <button className={isFavorite ? "" : "primary"} disabled={isFavorite === null} onClick={toggle}>
-        {isFavorite ? "Remove from favourites" : "Add to favourites"}
+      <button className={isFavorite ? "ghost" : "primary"} disabled={isFavorite === null} onClick={toggle}>
+        {isFavorite ? "★ Remove from favourites" : "☆ Add to favourites"}
       </button>
       {error && <Notice kind="error">{error}</Notice>}
     </>
@@ -97,55 +125,76 @@ export default function GameDetail() {
   const id = Number(useParams().id);
   const game = useAsync(() => api.game(id), [id]);
 
-  if (game.loading) return <div className="skeleton" style={{ minHeight: 320 }} />;
+  if (game.loading) return <div className="skeleton" style={{ minHeight: 360 }} />;
   if (game.error) {
-    return (
-      <Notice kind="error">
-        {game.error instanceof ApiError && game.error.status === 404 ? "Game not found." : game.error.message}{" "}
-        <Link to="/">Back to games</Link>
-      </Notice>
-    );
+    if (game.error instanceof ApiError && game.error.status === 404) {
+      return (
+        <div className="empty">
+          <h1>Game not found</h1>
+          <Link to="/">Back to games</Link>
+        </div>
+      );
+    }
+    return <ErrorNotice error={game.error} onRetry={game.reload} />;
   }
   const g = game.data!;
   const steamUrl = g.steam_appid ? `https://store.steampowered.com/app/${g.steam_appid}` : null;
+  const released = g.released
+    ? new Date(g.released).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+    : "TBA";
 
   return (
     <>
-      <p style={{ margin: "0 0 0.75rem" }}>
-        <Link to="/">← All games</Link>
-      </p>
-      {g.background_image && (
-        <div className="hero">
-          <img src={g.background_image} alt="" />
+      <section className="detail-hero" style={g.background_image ? { ["--hero" as string]: `url("${g.background_image}")` } : undefined}>
+        <div className="detail-hero-inner">
+          <Link to="/" className="back">
+            ← All games
+          </Link>
+          <h1>{g.name}</h1>
+          <p className="detail-sub">
+            {released}
+            {g.esrb_rating && <span className="pill">ESRB {g.esrb_rating}</span>}
+          </p>
+          <div className="detail-actions">
+            <FavoriteButton gameId={g.id} />
+            {steamUrl && (
+              <a className="button ghost" href={steamUrl} target="_blank" rel="noreferrer">
+                Steam store ↗
+              </a>
+            )}
+          </div>
         </div>
-      )}
-      <div className="page-head">
-        <h1 style={{ margin: 0 }}>{g.name}</h1>
-      </div>
+      </section>
 
       <div className="detail">
-        <div>
-          <div className="card section">
+        <div className="stack-lg">
+          {g.clip && g.clip.endsWith(".mp4") && (
+            <div className="panel">
+              <h2>Trailer</h2>
+              <video src={g.clip} controls preload="none" poster={g.background_image ?? undefined} className="video" />
+            </div>
+          )}
+          <div className="panel">
+            <h2>Details</h2>
             <dl className="facts">
-              <dt>Released</dt>
-              <dd>{g.released ? g.released.slice(0, 10) : "TBA"}</dd>
               <dt>Genres</dt>
               <dd>
-                <Names items={g.genres} />
+                <Chips items={g.genres} />
               </dd>
               <dt>Platforms</dt>
               <dd>
-                <Names items={g.platforms} />
+                <Chips items={g.platforms} />
               </dd>
               <dt>Stores</dt>
               <dd>
-                <Names items={g.stores} />
+                <Chips items={g.stores} />
               </dd>
-              {g.rating !== null && (
+              {g.rating !== null && g.rating > 0 && (
                 <>
                   <dt>User rating</dt>
                   <dd>
-                    {g.rating.toFixed(2)} / 5{g.ratings_count ? ` (${g.ratings_count.toLocaleString()} ratings)` : ""}
+                    {g.rating.toFixed(2)} / 5
+                    {g.ratings_count ? <span className="subtle"> · {fmt(g.ratings_count)} ratings</span> : null}
                   </dd>
                 </>
               )}
@@ -155,60 +204,18 @@ export default function GameDetail() {
                   <dd>{g.playtime} h</dd>
                 </>
               ) : null}
-              {steamUrl && (
-                <>
-                  <dt>Steam</dt>
-                  <dd>
-                    <a href={steamUrl} target="_blank" rel="noreferrer">
-                      Store page
-                    </a>
-                  </dd>
-                </>
-              )}
             </dl>
           </div>
           {g.tags.length > 0 && (
-            <div className="card section">
+            <div className="panel">
               <h2>Tags</h2>
-              <Names items={g.tags} />
-            </div>
-          )}
-          {g.clip && g.clip.endsWith(".mp4") && (
-            <div className="card section">
-              <h2>Trailer</h2>
-              <video src={g.clip} controls style={{ width: "100%", borderRadius: 8 }} />
+              <Chips items={g.tags} />
             </div>
           )}
         </div>
-
-        <div>
-          <div className="card section">
-            <h2>Scores</h2>
-            <div className="scores">
-              <div className="score-block">
-                <Score value={g.metacritic} big title="Metacritic" />
-                <div>
-                  <strong>Metacritic</strong>
-                  <small>{g.metacritic === null ? "not scored" : "actual"}</small>
-                </div>
-              </div>
-              {g.critic_rating !== null && (
-                <div className="score-block">
-                  <Score value={g.critic_rating} big title="IGDB critic rating" />
-                  <div>
-                    <strong>IGDB critics</strong>
-                    <small>average</small>
-                  </div>
-                </div>
-              )}
-            </div>
-            <Prediction game={g} />
-          </div>
-          <div className="card section">
-            <h2>Favourites</h2>
-            <FavoriteButton gameId={g.id} />
-          </div>
-        </div>
+        <aside className="stack-lg sticky">
+          <ScorePanel game={g} />
+        </aside>
       </div>
     </>
   );

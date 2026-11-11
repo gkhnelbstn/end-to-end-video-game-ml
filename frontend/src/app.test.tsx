@@ -1,8 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import App from "./App";
-import { api, ApiError } from "./api";
+import { api, ApiError, isUnreachable } from "./api";
 import { AuthProvider } from "./auth";
 import { scoreClass } from "./components/ui";
 
@@ -16,6 +16,7 @@ const GAME = {
   metacritic: 92,
   critic_rating: null,
   playtime: 74,
+  esrb_rating: "Mature",
   background_image: null,
   clip: null,
   steam_appid: null,
@@ -93,6 +94,62 @@ test("game page explains a missing model", async () => {
   });
   renderAt("/games/3498");
   expect(await screen.findByText("No trained model is available yet.")).toBeInTheDocument();
+});
+
+test("an unreachable backend gets a clear message and a retry", async () => {
+  let calls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input).split("?")[0];
+      if (path === "/api/games") {
+        calls += 1;
+        if (calls === 1) throw new TypeError("Failed to fetch");
+        return json([GAME]);
+      }
+      return json([]);
+    }),
+  );
+  renderAt("/");
+  expect(await screen.findByText(/Can't reach the API/)).toBeInTheDocument();
+  expect(screen.queryByText(/Failed to fetch/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByText("Grand Theft Auto V")).toBeInTheDocument();
+});
+
+test("a proxy 502 without a body counts as unreachable", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("Bad Gateway", { status: 502 })));
+  await expect(api.genres()).rejects.toSatisfy(isUnreachable);
+});
+
+test("the predictor sends every trait to the API", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const path = String(input).split("?")[0];
+    if (path === "/api/predictions/metacritic") {
+      return json({ predicted_metacritic: 81.2, model_name: "m", model_version: "3", game_id: null, actual_metacritic: null });
+    }
+    if (path === "/api/ml/model") {
+      return json({ model_name: "m", model_version: "3", run_id: null, metrics: { test_mae: 8.4 }, tracking_uri: "" });
+    }
+    if (path === "/api/stats/esrb-ratings") return json([{ name: "Mature", count: 3 }]);
+    if (path === "/api/genres") return json([{ id: 5, name: "RPG", slug: "rpg" }]);
+    return json([]);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  renderAt("/predict");
+  fireEvent.click(await screen.findByRole("button", { name: "RPG" }));
+  fireEvent.change(screen.getByLabelText(/Title/), { target: { value: "Space Saga II" } });
+  fireEvent.click(screen.getByRole("button", { name: "Predict score" }));
+
+  expect(await screen.findByText("Generally favourable")).toBeInTheDocument();
+  const call = fetchMock.mock.calls.find(([input]) => String(input) === "/api/predictions/metacritic")!;
+  expect(JSON.parse(String(call[1]!.body))).toMatchObject({
+    name: "Space Saga II",
+    genres: ["RPG"],
+    platforms: ["PC"],
+    tags: ["Singleplayer"],
+    esrb_rating: null,
+  });
 });
 
 test("api errors carry FastAPI's detail message", async () => {

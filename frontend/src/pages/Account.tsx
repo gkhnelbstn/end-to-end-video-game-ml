@@ -3,7 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { Cover, Notice, Score, year } from "../components/ui";
+import GameCard from "../components/GameCard";
+import { ErrorNotice, Notice } from "../components/ui";
 import { useAsync } from "../hooks";
 
 function Credentials({ mode }: { mode: "login" | "register" }) {
@@ -11,7 +12,7 @@ function Credentials({ mode }: { mode: "login" | "register" }) {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<Error>();
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: FormEvent) => {
@@ -23,16 +24,18 @@ function Credentials({ mode }: { mode: "login" | "register" }) {
       signIn(await api.login(email, password));
       navigate("/favorites");
     } catch (err) {
-      setError((err as Error).message);
+      setError(err as Error);
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="card narrow">
+    <div className="panel narrow">
+      <p className="eyebrow">{mode === "login" ? "Welcome back" : "Get started"}</p>
       <h1>{mode === "login" ? "Sign in" : "Create an account"}</h1>
-      <form className="stack" onSubmit={submit}>
+      <p className="subtle">Save games to your favourites and find them again later.</p>
+      <form className="form" onSubmit={submit}>
         <label className="field">
           Email
           <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -47,12 +50,12 @@ function Credentials({ mode }: { mode: "login" | "register" }) {
             onChange={(e) => setPassword(e.target.value)}
           />
         </label>
-        {error && <Notice kind="error">{error}</Notice>}
+        {error && <ErrorNotice error={error} />}
         <button className="primary" type="submit" disabled={busy}>
-          {mode === "login" ? "Sign in" : "Create account"}
+          {busy ? "One moment…" : mode === "login" ? "Sign in" : "Create account"}
         </button>
       </form>
-      <p className="subtle" style={{ marginBottom: 0 }}>
+      <p className="subtle small">
         {mode === "login" ? (
           <>
             No account? <Link to="/register">Create one</Link>
@@ -76,22 +79,23 @@ export function Favorites() {
 
   if (!user) {
     return (
-      <Notice>
-        <Link to="/login">Sign in</Link> to see your favourite games.
-      </Notice>
+      <div className="empty">
+        <h1>Your favourites</h1>
+        <p className="subtle">Sign in to keep a list of games you care about.</p>
+        <Link to="/login" className="button primary">
+          Sign in
+        </Link>
+      </div>
     );
   }
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Favourites</h1>
-          <p className="subtle" style={{ margin: 0 }}>
-            Signed in as {user.email}
-          </p>
-        </div>
-      </div>
-      {favorites.error && <Notice kind="error">{favorites.error.message}</Notice>}
+      <section className="page-intro">
+        <p className="eyebrow">Favourites</p>
+        <h1>Your games</h1>
+        <p className="lede">Signed in as {user.email}</p>
+      </section>
+      {favorites.error && <ErrorNotice error={favorites.error} onRetry={favorites.reload} />}
       {favorites.data?.length === 0 && (
         <Notice>
           No favourites yet. Open a game and press <em>Add to favourites</em>.
@@ -99,16 +103,7 @@ export function Favorites() {
       )}
       <div className="game-grid">
         {favorites.data?.map((game) => (
-          <Link to={`/games/${game.id}`} className="game-card" key={game.id}>
-            <Cover game={game} />
-            <div className="game-card-body">
-              <span className="game-card-title">{game.name}</span>
-              <div className="meta-row">
-                <span>{year(game.released)}</span>
-                <Score value={game.metacritic} title="Metacritic" />
-              </div>
-            </div>
-          </Link>
+          <GameCard game={game} key={game.id} />
         ))}
       </div>
     </>
