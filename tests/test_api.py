@@ -73,6 +73,15 @@ def test_add_and_list_favorites(client):
     assert names(client.get("/api/users/1/favorites")) == ["Game A"]
 
 
+def test_remove_favorite(client):
+    client.post("/api/users/1/favorites/1", headers=AUTH)
+    assert client.delete("/api/users/1/favorites/1", headers=AUTH).status_code == 200
+    assert names(client.get("/api/users/1/favorites")) == []
+    # Removing a game that is not a favourite is a no-op.
+    assert client.delete("/api/users/1/favorites/1", headers=AUTH).status_code == 200
+    assert client.delete("/api/users/2/favorites/1", headers=AUTH).status_code == 403
+
+
 def test_favorites_require_matching_user(client):
     assert client.post("/api/users/1/favorites/1").status_code == 401
     assert client.post("/api/users/2/favorites/1", headers=AUTH).status_code == 403

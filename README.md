@@ -6,7 +6,7 @@ A small end-to-end data and ML platform for video games. Celery tasks collect ga
 **Steam + SteamSpy** (and optionally **IGDB**) into PostgreSQL, a model predicts a game's
 **Metacritic score** from its metadata, **MLflow** tracks every training run and serves the
 promoted model through the registry, a FastAPI service exposes data and predictions, and
-a Streamlit dashboard browses both. The whole stack starts with one command.
+a React dashboard browses both. The whole stack starts with one command.
 
 > **Data sources.** The original source, the RAWG API, was unreachable when this was
 > written (HTTP 522 from `api.rawg.io` on 2026-11-10). The bundled CSVs in `data/raw` are
@@ -31,7 +31,7 @@ promotes it to `champion`; from then on the API serves predictions.
 
 | What | URL |
 | --- | --- |
-| Dashboard (Streamlit) | http://localhost:8501 |
+| Dashboard (React) | http://localhost:8080 |
 | API docs (Swagger UI) | http://localhost:8000/docs |
 | Admin panel (SQLAdmin), `admin` / `adminpass` | http://localhost:8000/admin |
 | Scheduled-task manager | http://localhost:8000/task-management |
@@ -92,7 +92,7 @@ flowchart LR
     B -->|load champion model| M
     M -->|backend store| DB
     B -->|SQLAlchemy| DB
-    F[Streamlit dashboard] -->|HTTP| B
+    F[React dashboard<br/>nginx] -->|/api proxy| B
     FL[Flower] --> R
 ```
 
@@ -107,13 +107,13 @@ flowchart LR
 | `backend` | FastAPI app: REST API, predictions, SQLAdmin panel, and an in-process APScheduler that enqueues the periodic Celery tasks. |
 | `worker` | Celery worker: ingestion (Steam, IGDB, RAWG) and scheduled retraining. |
 | `flower` | Celery monitoring UI. |
-| `frontend` | Streamlit dashboard; talks only to the backend API. |
+| `frontend` | React dashboard (`frontend/`), served by nginx, which also proxies `/api` to the backend. |
 | `backfill` | Opt-in (`--profile backfill`): queues ingestion for a range of years. |
 
 `backend`, `worker`, `flower`, `migrate`, `seed` and `train` share one image
-(`Dockerfile`, target `app`); the dashboard (target `frontend`) and MLflow (target
-`mlflow`) have their own. All are multi-stage builds that install the locked dependencies
-with uv and run as a non-root user.
+(`Dockerfile`, target `app`); MLflow has its own target (`mlflow`). Both are multi-stage
+builds that install the locked dependencies with uv and run as a non-root user. The
+dashboard is built with Node and served by unprivileged nginx (`frontend/Dockerfile`).
 
 ### Data flow
 
@@ -152,7 +152,7 @@ A test (`tests/test_migrations.py`) fails CI if the migrations and the models dr
 | `POST /api/predictions/metacritic` | Prediction for a hypothetical game: `{"release_year": 2025, "genres": ["RPG"], "platforms": ["PC"], "tags": ["Singleplayer"]}`. |
 | `GET /api/ml/model`, `POST /api/ml/reload` | Which model version is served and its metrics; re-check the `champion` alias now. |
 | `POST /api/users`, `POST /api/auth/login` | Register and log in (dashboard accounts). |
-| `GET/POST /api/users/{id}/favorites[/{game_id}]` | Favorite games. |
+| `GET /api/users/{id}/favorites`, `POST`/`DELETE /api/users/{id}/favorites/{game_id}` | List, add and remove favorite games. |
 | `/api/tasks/...` | Inspect workers, run Celery tasks, manage scheduled tasks. |
 
 Full, interactive reference: http://localhost:8000/docs.
@@ -182,8 +182,8 @@ after release, and Steam and IGDB rows do not have them.
 - `serving.py`: the API loads `models:/metacritic-predictor@champion` lazily and re-checks
   the alias every 60 seconds (`MODEL_REFRESH_SECONDS`), so a newly promoted version is
   served without a restart. Without a model, prediction endpoints answer 503.
-- Dashboard: each game's details show the predicted next to the actual score, and the
-  **Score Predictor** page shows the served model's metrics and predicts a score for any
+- Dashboard: each game's page shows the predicted next to the actual score, and the
+  **Score predictor** page shows the served model's metrics and predicts a score for any
   combination of year, genres, platforms and tags.
 
 **What MLflow records for every training run** (experiment `metacritic-prediction`):
@@ -289,17 +289,36 @@ TEST_DATABASE_URL=postgresql+psycopg://game_insight:game_insight@127.0.0.1:5433/
 The tests mock all HTTP calls (Steam, SteamSpy, IGDB, RAWG) and train real models against
 a throwaway SQLite-backed MLflow, so they need no network or services.
 
-CI (GitHub Actions) runs ruff, the test suite against a PostgreSQL service, and a
+CI (GitHub Actions) runs ruff, the test suite against a PostgreSQL service, the dashboard's
+type check, tests and build, and a
 `docker compose` end-to-end check on every push and pull request: it starts the stack,
 seeds the 2000 to 2004 CSVs, trains and registers a model in the MLflow service, and
 calls the prediction endpoints.
+
+### Dashboard development
+
+Requires Node.js 22. The Vite dev server proxies `/api` to the backend on port 8000 (set
+`BACKEND_URL` to point it elsewhere), so start the stack or just `backend` first:
+
+```bash
+cd frontend
+npm ci
+npm run dev        # http://localhost:5173 with hot reload
+npm test           # component tests (Vitest, API mocked)
+npm run build      # type check + production build into dist/
+```
+
+Pages: games (search, genre/platform filters, sorting; filters live in the URL), a page
+per game with its scores, the model's prediction and a favourite toggle, statistics,
+the score predictor, and sign-in/registration with a favourites list.
 
 ### Project layout
 
 ```
 ├── compose.yaml            # the whole stack
-├── Dockerfile              # multi-stage; targets: app, frontend, mlflow
+├── Dockerfile              # multi-stage; targets: app, mlflow
 ├── pyproject.toml, uv.lock # dependencies (uv)
+├── frontend/               # React + Vite + TypeScript dashboard, nginx config, Dockerfile
 ├── data/raw/               # RAWG CSV snapshot used by the seed script
 ├── notebooks/              # metacritic-analysis.ipynb, plus early exploration notebooks
 ├── reports/figures/        # figures written by the analysis notebook
@@ -307,7 +326,6 @@ calls the prediction endpoints.
 │   ├── backend/            # FastAPI app, models, Alembic migrations, admin, scheduler
 │   ├── worker/             # Celery tasks; sources/ has the Steam, IGDB clients; RAWG client
 │   ├── ml/                 # features, training with MLflow, model serving
-│   ├── frontend/           # Streamlit dashboard
 │   └── scripts/            # seed_from_csv.py, backfill_data.py, ensure_database.py
 └── tests/
 ```

@@ -310,6 +310,18 @@ def add_favorite(
     return crud.add_favorite_game(db=db, user=current_user, game=game)
 
 
+@app.delete("/api/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
+def remove_favorite(
+    user_id: int,
+    game: Annotated[models.Game, Depends(get_game_or_404)],
+    db: DbSession,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return crud.remove_favorite_game(db=db, user=current_user, game=game)
+
+
 @app.get("/api/users/{user_id}/favorites", response_model=list[schemas.Game])
 def list_favorites(user_id: int, db: DbSession):
     user = crud.get_user(db, user_id)
