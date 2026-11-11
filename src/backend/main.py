@@ -169,9 +169,11 @@ def list_games(
     sort_order: str = "asc",
     skip: int = 0,
     limit: int = 100,
+    scored: bool = False,
 ):
     return crud.get_games(
         db=db,
+        scored=scored,
         search=search,
         genre=genre,
         platform=platform,
@@ -217,7 +219,7 @@ def _predict(rows: list[dict]) -> list[float]:
 
 @app.get("/api/games/{game_id}/predicted-metacritic", response_model=schemas.MetacriticPrediction)
 def predict_game_metacritic(game: Annotated[models.Game, Depends(get_game_or_404)]):
-    """What the model expects this game to score, from its year, genres, platforms and tags."""
+    """What the model expects this game to score, from what is known about it before release."""
     [prediction] = _predict([features.game_to_row(game)])
     info = model_service.info()
     return schemas.MetacriticPrediction(
@@ -233,9 +235,13 @@ def predict_game_metacritic(game: Annotated[models.Game, Depends(get_game_or_404
 def predict_metacritic(game: schemas.GameFeatures):
     """Predict a Metacritic score for a hypothetical game."""
     row = {
+        "name": game.name,
         "release_year": game.release_year,
+        "release_month": game.release_month,
+        "esrb_rating": game.esrb_rating or "",
         "genres": features.join_names(game.genres),
         "platforms": features.join_names(game.platforms),
+        "stores": features.join_names(game.stores),
         "tags": features.join_names(game.tags),
     }
     [prediction] = _predict([row])
@@ -356,3 +362,23 @@ def get_top_genres(db: DbSession, limit: int = 10):
 @app.get("/api/stats/top-platforms")
 def get_top_platforms(db: DbSession, limit: int = 10):
     return crud.get_top_platforms(db, limit=limit)
+
+
+@app.get("/api/stats/top-stores")
+def get_top_stores(db: DbSession, limit: int = 10):
+    return crud.get_top_stores(db, limit=limit)
+
+
+@app.get("/api/stats/esrb-ratings")
+def get_esrb_ratings(db: DbSession):
+    return crud.get_esrb_ratings(db)
+
+
+@app.get("/api/stats/summary")
+def get_summary(db: DbSession):
+    return crud.get_summary(db)
+
+
+@app.get("/api/stats/metacritic-distribution")
+def get_metacritic_distribution(db: DbSession):
+    return crud.get_metacritic_distribution(db)

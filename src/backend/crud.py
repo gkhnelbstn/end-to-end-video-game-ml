@@ -1,6 +1,6 @@
 """Database queries used by the API, the worker and the seeder."""
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from . import models, schemas, security
@@ -19,6 +19,7 @@ _SCALAR_FIELDS = (
     "metacritic",
     "critic_rating",
     "playtime",
+    "esrb_rating",
     "background_image",
     "clip",
 )
@@ -100,9 +101,12 @@ def get_games(
     rating: float | None = None,
     sort_by: str | None = None,
     sort_order: str = "asc",
+    scored: bool = False,
 ) -> list[models.Game]:
-    """List games with optional filtering and sorting."""
+    """List games with optional filtering and sorting. `scored` keeps games with a Metacritic."""
     stmt = select(models.Game)
+    if scored:
+        stmt = stmt.where(models.Game.metacritic.is_not(None))
 
     if search:
         stmt = stmt.where(models.Game.name.icontains(search))
@@ -191,7 +195,7 @@ def update_game(db: Session, db_game: models.Game, game: schemas.GameCreate) -> 
     """
     for field in _SCALAR_FIELDS:
         value = getattr(game, field)
-        if value is None and field in ("background_image", "clip"):
+        if value is None and field in ("background_image", "clip", "esrb_rating"):
             continue
         setattr(db_game, field, value)
     for field in _SOURCE_IDS:
@@ -309,7 +313,8 @@ def get_average_rating_by_genre(db: Session) -> list[dict]:
     rows = db.execute(
         select(models.Genre.name, func.avg(models.Game.rating))
         .join(models.Game.genres)
-        .where(models.Game.rating.is_not(None))
+        # RAWG stores 0 for "not rated yet"; counting those would drag every average down.
+        .where(models.Game.rating > 0)
         .group_by(models.Genre.name)
         .order_by(models.Genre.name)
     )
@@ -346,3 +351,54 @@ def get_top_genres(db: Session, limit: int = 10) -> list[dict]:
 
 def get_top_platforms(db: Session, limit: int = 10) -> list[dict]:
     return _top_by_game_count(db, models.Platform, models.Game.platforms, limit)
+
+
+def get_top_stores(db: Session, limit: int = 10) -> list[dict]:
+    return _top_by_game_count(db, models.Store, models.Game.stores, limit)
+
+
+def get_esrb_ratings(db: Session) -> list[dict]:
+    count = func.count(models.Game.id)
+    rows = db.execute(
+        select(models.Game.esrb_rating, count)
+        .where(models.Game.esrb_rating.is_not(None))
+        .group_by(models.Game.esrb_rating)
+        .order_by(count.desc())
+    )
+    return [{"name": name, "count": n} for name, n in rows]
+
+
+def get_summary(db: Session) -> dict:
+    """Headline numbers for the dashboard."""
+    games, scored, avg_score, first, last = db.execute(
+        select(
+            func.count(models.Game.id),
+            func.count(models.Game.metacritic),
+            func.avg(models.Game.metacritic),
+            func.min(models.Game.released),
+            # Announced games carry placeholder dates years ahead; count released ones only.
+            func.max(case((models.Game.released <= func.now(), models.Game.released))),
+        )
+    ).one()
+    return {
+        "games": games,
+        "with_metacritic": scored,
+        "avg_metacritic": None if avg_score is None else round(float(avg_score), 1),
+        "genres": db.scalar(select(func.count(models.Genre.id))),
+        "platforms": db.scalar(select(func.count(models.Platform.id))),
+        "first_year": first.year if first else None,
+        "last_year": last.year if last else None,
+    }
+
+
+def get_metacritic_distribution(db: Session) -> list[dict]:
+    """Games per 10-point Metacritic band (0-9, 10-19, ..., 90-100)."""
+    score = models.Game.metacritic
+    band = case((score >= 100, 90), else_=(score // 10) * 10)
+    rows = db.execute(
+        select(band, func.count(models.Game.id))
+        .where(models.Game.metacritic.is_not(None))
+        .group_by(band)
+        .order_by(band)
+    )
+    return [{"band": int(b), "count": n} for b, n in rows]

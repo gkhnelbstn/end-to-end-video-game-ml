@@ -56,21 +56,56 @@ def synthetic_games(n: int = 300, seed: int = 0) -> pd.DataFrame:
 def test_feature_dicts():
     frame = features.to_frame(
         [
-            {"release_year": 2020, "genres": "Action|RPG", "platforms": "PC", "tags": ""},
-            {"release_year": None, "genres": "", "platforms": "", "tags": "Co-op"},
+            {
+                "name": "Space Rangers",
+                "release_year": 2020,
+                "release_month": 11,
+                "esrb_rating": "Teen",
+                "genres": "Action|RPG",
+                "platforms": "PC",
+                "stores": "Steam",
+                "tags": "",
+            },
+            {"release_year": None, "tags": "Co-op"},
         ]
     )
     first, second = features.to_feature_dicts(frame)
     assert first == {
         "release_year": 1.0,
+        "release_quarter=Q4": 1.0,
+        "esrb=Teen": 1.0,
+        "title_words": 2.0,
+        "word=space": 1.0,
+        "word=rangers": 1.0,
         "n_genres": 2.0,
         "genre=Action": 1.0,
         "genre=RPG": 1.0,
         "n_platforms": 1.0,
         "platform=PC": 1.0,
+        "n_stores": 1.0,
+        "store=Steam": 1.0,
         "n_tags": 0.0,
     }
     assert second["release_year_missing"] == 1.0 and second["tag=Co-op"] == 1.0
+    assert second["esrb=unknown"] == 1.0 and "title_words" not in second
+
+
+@pytest.mark.parametrize(
+    ("name", "sequel", "subtitle", "rerelease"),
+    [
+        ("Halo 3", 3, False, False),
+        ("Diablo II: Lord of Destruction", 2, True, False),
+        ("Final Fantasy VII", 7, False, False),
+        ("Dark Souls: Remastered", None, True, True),
+        ("Portal", None, False, False),
+        ("2064: Read Only Memories", None, True, False),
+    ],
+)
+def test_name_features(name, sequel, subtitle, rerelease):
+    out = features.name_features(name)
+    assert out.get("title_sequel_number") == (None if sequel is None else float(sequel))
+    assert ("title_subtitle" in out) is subtitle
+    assert ("title_rerelease" in out) is rerelease
 
 
 def test_join_names_dedupes_sorts_and_escapes():
@@ -85,6 +120,7 @@ def test_load_dataset_only_games_with_metacritic(db):
     assert frame["game_id"].tolist() == [1]
     assert frame.loc[0, ["genres", "platforms", "source"]].tolist() == ["Action", "PC", "steam"]
     assert frame.loc[0, "release_year"] == 2023.0
+    assert frame.loc[0, "name"] == "Game A"
 
 
 def test_test_split_is_stable_as_data_grows():
@@ -162,6 +198,36 @@ def test_model_service_and_api(tracking, client, monkeypatch):
     # The registered model loads on its own (feature code is pickled by value).
     loaded = mlflow.pyfunc.load_model(f"models:/{MODEL_NAME}@{CHAMPION_ALIAS}")
     assert loaded.metadata.signature.inputs.input_names() == features.INPUT_COLUMNS
+
+
+def test_champion_with_older_inputs_still_works(tracking):
+    """A champion logged before the input columns grew must still be served and compared.
+
+    MLflow drops input columns the model's signature does not list, so the new, wider
+    rows reach the old model as the narrower rows it was trained on.
+    """
+    from sklearn.dummy import DummyRegressor
+
+    legacy_columns = ["release_year", "genres", "platforms", "tags"]
+    games = synthetic_games()
+    old_inputs = games[legacy_columns]
+    old_model = DummyRegressor(constant=70.0, strategy="constant").fit(
+        old_inputs, games["metacritic"]
+    )
+    with mlflow.start_run():
+        mlflow.sklearn.log_model(
+            old_model,
+            name="model",
+            registered_model_name=MODEL_NAME,
+            signature=mlflow.models.infer_signature(old_inputs.head(5)),
+            serialization_format="cloudpickle",
+        )
+    tracking.set_registered_model_alias(MODEL_NAME, CHAMPION_ALIAS, "1")
+
+    new_rows = games[features.INPUT_COLUMNS]
+    assert ModelService(refresh_seconds=0).predict(new_rows.head(2)) == [70.0, 70.0]
+    mae, version = train.champion_mae(tracking, new_rows, games["metacritic"].to_numpy())
+    assert version == "1" and mae is not None
 
 
 def test_api_returns_503_without_a_model(client, monkeypatch):

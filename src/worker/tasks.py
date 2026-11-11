@@ -56,6 +56,7 @@ def example_task(x: int, y: int) -> int:
 def to_game_create(game_data: dict[str, Any]) -> schemas.GameCreate:
     """Map one game from a RAWG API response to our schema."""
     clip = game_data.get("clip")
+    esrb = game_data.get("esrb_rating")
     return schemas.GameCreate(
         id=game_data["id"],
         slug=game_data["slug"],
@@ -65,6 +66,7 @@ def to_game_create(game_data: dict[str, Any]) -> schemas.GameCreate:
         ratings_count=game_data.get("ratings_count"),
         metacritic=game_data.get("metacritic"),
         playtime=game_data.get("playtime"),
+        esrb_rating=esrb.get("name") if isinstance(esrb, dict) else None,
         background_image=game_data.get("background_image"),
         clip=clip.get("clip") if isinstance(clip, dict) else clip,
         # RAWG returns null instead of an empty list for these.

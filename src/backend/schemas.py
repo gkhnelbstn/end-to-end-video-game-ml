@@ -44,6 +44,7 @@ class GameFields(BaseModel):
     metacritic: int | None = None
     critic_rating: float | None = None
     playtime: int | None = None
+    esrb_rating: str | None = None
     background_image: str | None = None
     clip: str | None = None
     steam_appid: int | None = None
@@ -115,11 +116,18 @@ class User(_OrmModel):
 
 
 class GameFeatures(BaseModel):
-    """What the Metacritic model looks at. Names match the genre/platform/tag names in the API."""
+    """What the Metacritic model looks at: things known before release, no reception data.
 
+    Names match the genre/platform/store/tag names in the API. Every field is optional.
+    """
+
+    name: str = Field(default="", max_length=200)
     release_year: int | None = Field(default=None, ge=1970, le=2100)
+    release_month: int | None = Field(default=None, ge=1, le=12)
+    esrb_rating: str | None = None
     genres: list[str] = []
     platforms: list[str] = []
+    stores: list[str] = []
     tags: list[str] = []
 
 
