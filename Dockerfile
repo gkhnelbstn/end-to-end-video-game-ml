@@ -22,6 +22,10 @@ FROM builder AS frontend-deps
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --only-group frontend
 
+FROM builder AS mlflow-deps
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --only-group mlflow-server
+
 # ---- runtime base: slim image, non-root user, no build tooling ----
 FROM python:${PYTHON_VERSION}-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -45,3 +49,13 @@ COPY --from=frontend-deps /app/.venv /app/.venv
 COPY src/frontend ./src/frontend
 EXPOSE 8501
 CMD ["streamlit", "run", "src/frontend/app.py", "--server.address=0.0.0.0", "--server.headless=true", "--browser.gatherUsageStats=false"]
+
+# ---- mlflow: tracking server + model registry (command set in compose.yaml) ----
+FROM runtime AS mlflow
+COPY --from=mlflow-deps /app/.venv /app/.venv
+COPY src/__init__.py ./src/__init__.py
+COPY src/scripts ./src/scripts
+USER root
+RUN mkdir -p /mlflow/artifacts && chown -R app /mlflow
+USER app
+EXPOSE 5000

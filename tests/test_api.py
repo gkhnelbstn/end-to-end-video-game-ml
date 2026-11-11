@@ -141,6 +141,10 @@ def test_create_user_duplicate_email(client):
 def test_scheduled_task_api_lists_available_functions(client):
     data = client.get("/api/tasks/functions/available").json()
     assert set(data["functions"]) == {
+        "fetch_steam_games",
+        "fetch_igdb_monthly_updates",
+        "fetch_igdb_games_for_month",
+        "train_metacritic_model",
         "fetch_monthly_updates",
         "fetch_weekly_updates",
         "example_task",

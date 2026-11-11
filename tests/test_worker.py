@@ -68,6 +68,7 @@ def test_fetch_games_for_month_task_saves_games(db):
         "games_fetched": 1,
         "games_created": 1,
         "games_updated": 0,
+        "games_merged": 0,
         "games_failed": 0,
     }
     # Running the same month again must not duplicate anything.

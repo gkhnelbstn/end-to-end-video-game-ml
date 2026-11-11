@@ -94,3 +94,7 @@ target/
 .ruff_cache/
 .pytest_cache/
 .claude/
+
+# MLflow (local runs)
+mlruns/
+mlartifacts/

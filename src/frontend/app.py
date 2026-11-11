@@ -48,6 +48,20 @@ def render_game_details(selected_game: dict) -> None:
     st.write(f"**Released:** {rel_disp}")
     st.write(f"**Rating:** {rating_disp}")
     st.write(f"**Metacritic:** {meta_disp}")
+    if selected_game.get("critic_rating") is not None:
+        st.write(f"**IGDB critic rating:** {selected_game['critic_rating']:.0f}")
+    try:
+        pred = httpx.get(f"{BACKEND_URL}/api/games/{selected_game.get('id')}/predicted-metacritic")
+        if pred.status_code == 200:
+            body = pred.json()
+            st.write(
+                f"**Predicted Metacritic:** {body['predicted_metacritic']:.0f} "
+                f"(model v{body['model_version']}, from year, genres, platforms and tags)"
+            )
+        else:
+            st.caption("No prediction: no trained model is available yet.")
+    except httpx.HTTPError:
+        st.caption("No prediction: the backend did not answer.")
 
     st.subheader("Genres")
     st.write(", ".join([genre.get("name", "") for genre in selected_game.get("genres", [])]))
@@ -111,7 +125,9 @@ def _on_game_selected():
 
 # --- Sidebar for Filtering and Sorting ---
 st.sidebar.header("Navigation")
-page = st.sidebar.radio("Go to", ["Home", "Dashboard", "Profile", "Register", "Login"])
+page = st.sidebar.radio(
+    "Go to", ["Home", "Dashboard", "Score Predictor", "Profile", "Register", "Login"]
+)
 
 if "user_id" in st.session_state:
     st.sidebar.success(f"Logged in as {st.session_state.get('user_email', 'user')}")
@@ -386,7 +402,57 @@ if page == "Dashboard":
         st.error(f"Failed to fetch statistics from the backend: {e}")
 
 
-# Health check UI removed per product decision
+if page == "Score Predictor":
+    st.header("Metacritic Score Predictor")
+    st.write(
+        "Estimate the Metacritic score of a game from its release year, genres, platforms "
+        "and tags, using the model currently promoted to `champion` in the MLflow registry."
+    )
+    try:
+        model_resp = httpx.get(f"{BACKEND_URL}/api/ml/model")
+        if model_resp.status_code == 200:
+            model = model_resp.json()
+            metrics = model["metrics"]
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Model version", model["model_version"])
+            c2.metric("Test MAE", f"{metrics.get('test_mae', float('nan')):.2f}")
+            c3.metric("Baseline MAE", f"{metrics.get('baseline_test_mae', float('nan')):.2f}")
+            st.caption(
+                "MAE: mean absolute error in Metacritic points on held-out games. "
+                "The baseline always predicts the training mean."
+            )
+        else:
+            st.warning(model_resp.json().get("detail", "No model available yet."))
+    except httpx.HTTPError as e:
+        st.error(f"Failed to reach the backend: {e}")
+
+    try:
+        genre_names = [g["name"] for g in httpx.get(f"{BACKEND_URL}/api/genres").json()]
+        platform_names = [p["name"] for p in httpx.get(f"{BACKEND_URL}/api/platforms").json()]
+    except httpx.HTTPError:
+        genre_names, platform_names = [], []
+
+    with st.form("predict_form"):
+        year = st.number_input("Release year", min_value=1970, max_value=2100, value=2025)
+        chosen_genres = st.multiselect("Genres", genre_names)
+        chosen_platforms = st.multiselect("Platforms", platform_names)
+        tags_text = st.text_input("Tags (comma separated)", "Singleplayer, Story Rich")
+        submitted = st.form_submit_button("Predict")
+    if submitted:
+        payload = {
+            "release_year": int(year),
+            "genres": chosen_genres,
+            "platforms": chosen_platforms,
+            "tags": [t.strip() for t in tags_text.split(",") if t.strip()],
+        }
+        try:
+            resp = httpx.post(f"{BACKEND_URL}/api/predictions/metacritic", json=payload)
+            if resp.status_code == 200:
+                st.metric("Predicted Metacritic", f"{resp.json()['predicted_metacritic']:.0f}")
+            else:
+                st.error(resp.json().get("detail", "Prediction failed."))
+        except httpx.HTTPError as e:
+            st.error(f"Failed to reach the backend: {e}")
 
 if page == "Profile":
     st.header("User Profile")

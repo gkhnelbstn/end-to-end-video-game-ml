@@ -1,17 +1,69 @@
-"""Pydantic schemas for API requests and responses."""
+"""Pydantic schemas for API requests and responses, and for ingestion."""
 
+import re
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+def slugify(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "untitled"
 
 
 class _OrmModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class Lookup(_OrmModel):
-    """A genre, platform, store or tag. Extra RAWG fields are ignored."""
+# --- Ingestion ---------------------------------------------------------------
 
+
+class LookupIn(BaseModel):
+    """A genre, platform, store or tag as a source reports it. Extra fields are ignored.
+
+    `id` is set only for RAWG data, whose ids the look-up tables keep. Other sources match
+    existing rows by slug or name, because their ids live in a different id space.
+    """
+
+    id: int | None = None
+    name: str
+    slug: str = ""
+
+    @model_validator(mode="after")
+    def _default_slug(self):
+        if not self.slug:
+            self.slug = slugify(self.name)
+        return self
+
+
+class GameFields(BaseModel):
+    slug: str
+    name: str
+    released: datetime | None = None
+    rating: float | None = None
+    ratings_count: int | None = None
+    metacritic: int | None = None
+    critic_rating: float | None = None
+    playtime: int | None = None
+    background_image: str | None = None
+    clip: str | None = None
+    steam_appid: int | None = None
+    igdb_id: int | None = None
+
+
+class GameCreate(GameFields):
+    """A game from one source. `id` is the RAWG id, or None for other sources."""
+
+    id: int | None = None
+    genres: list[LookupIn] = []
+    platforms: list[LookupIn] = []
+    stores: list[LookupIn] = []
+    tags: list[LookupIn] = []
+
+
+# --- API responses -----------------------------------------------------------
+
+
+class Lookup(_OrmModel):
     id: int
     name: str
     slug: str
@@ -34,28 +86,12 @@ class Tag(Lookup):
     pass
 
 
-class GameBase(BaseModel):
+class Game(GameFields, _OrmModel):
     id: int
-    slug: str
-    name: str
-    released: datetime | None = None
-    rating: float | None = None
-    ratings_count: int | None = None
-    metacritic: int | None = None
-    playtime: int | None = None
-    background_image: str | None = None
-    clip: str | None = None
-
-
-class GameCreate(GameBase):
     genres: list[Genre] = []
     platforms: list[Platform] = []
     stores: list[Store] = []
     tags: list[Tag] = []
-
-
-class Game(GameCreate, _OrmModel):
-    pass
 
 
 class LoginRequest(BaseModel):
@@ -73,3 +109,31 @@ class User(_OrmModel):
     email: str
     is_active: bool
     favorite_games: list[Game] = []
+
+
+# --- Predictions -------------------------------------------------------------
+
+
+class GameFeatures(BaseModel):
+    """What the Metacritic model looks at. Names match the genre/platform/tag names in the API."""
+
+    release_year: int | None = Field(default=None, ge=1970, le=2100)
+    genres: list[str] = []
+    platforms: list[str] = []
+    tags: list[str] = []
+
+
+class MetacriticPrediction(BaseModel):
+    predicted_metacritic: float
+    model_name: str
+    model_version: str
+    game_id: int | None = None
+    actual_metacritic: int | None = None
+
+
+class ModelInfo(BaseModel):
+    model_name: str
+    model_version: str
+    run_id: str | None
+    metrics: dict[str, float]
+    tracking_uri: str

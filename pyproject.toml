@@ -16,10 +16,14 @@ dependencies = [
     "httpx>=0.28",
     "itsdangerous>=2.2",
     "jinja2>=3.1",
+    # Client only: tracking, registry and model loading. The server has its own group.
+    "mlflow-skinny>=3.4",
+    "pandas>=2.3",
     "psycopg[binary]>=3.2",
     "pydantic>=2.11",
     "python-json-logger>=3.3",
     "python-multipart>=0.0.20",
+    "scikit-learn>=1.7",
     "sqladmin>=0.21",
     # The asyncio extra pulls in greenlet, which SQLAdmin needs at import time.
     # <2.1: SQLAdmin 0.32 cannot build forms for Float columns on SQLAlchemy 2.1.
@@ -34,6 +38,17 @@ frontend = [
     "pandas>=2.3",
     "streamlit>=1.50",
 ]
+# MLflow tracking server (its own container image).
+mlflow-server = [
+    "mlflow>=3.4",
+    "psycopg[binary]>=3.2",
+]
+# Analysis notebook.
+analysis = [
+    "ipykernel>=6.30",
+    "matplotlib>=3.10",
+    "nbconvert>=7.16",
+]
 dev = [
     # Starlette's TestClient transport.
     "httpx2>=2.16",
@@ -45,7 +60,7 @@ dev = [
 [tool.uv]
 # This is an application, not a library: nothing to build or publish.
 package = false
-default-groups = ["dev", "frontend"]
+default-groups = ["dev", "frontend", "analysis"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

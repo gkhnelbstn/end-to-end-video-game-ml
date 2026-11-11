@@ -70,19 +70,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          # data/raw holds ~500 MB of CSV exports that CI does not need.
+          # data/raw holds ~500 MB of CSV exports; check out only the CI sample.
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /*
-            !/data/
+            !/data/raw/*
+            /data/raw/games_200[0-4].csv
       - name: Build images and start the stack
         # --wait treats a container that exits as a failure, even with code 0, so wait
-        # on the long-running services only and run the one-shot seed separately.
+        # on the long-running services only and run the one-shots separately.
         run: |
           docker compose build
-          docker compose up --detach --wait --wait-timeout 300 backend worker flower frontend
-          docker compose up --exit-code-from seed seed
+          docker compose up --detach --wait --wait-timeout 300 backend worker flower frontend mlflow
+      - name: Seed a sample and train the model
+        # games_2000-2004 (~5,600 games, ~890 with a Metacritic score) keep CI quick.
+        run: |
+          docker compose run --rm seed python -m src.scripts.seed_from_csv --if-empty "games_200[0-4].csv"
+          docker compose run --rm train | tee train.json
+          grep -q '"status": "trained"' train.json
       - name: Smoke test
         run: |
           curl --fail --silent http://localhost:8000/health
@@ -90,6 +96,11 @@ jobs:
           curl --fail --silent http://localhost:8000/api/tasks/workers
           curl --fail --silent --output /dev/null http://localhost:8501/_stcore/health
           curl --fail --silent --output /dev/null http://localhost:5555/
+          curl --fail --silent http://localhost:5000/health
+          curl --fail --silent http://localhost:8000/api/ml/model
+          curl --fail --silent -X POST http://localhost:8000/api/predictions/metacritic \
+            -H "Content-Type: application/json" \
+            -d '{"release_year": 2004, "genres": ["Action"], "platforms": ["PC"], "tags": ["Singleplayer"]}'
       - name: Logs
         if: failure()
         run: docker compose logs --no-color --tail 200

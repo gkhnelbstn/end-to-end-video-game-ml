@@ -27,8 +27,13 @@ game_tags = _association("game_tags", "games", "tags")
 user_favorite_games = _association("user_favorite_games", "users", "games")
 
 
+# Games and look-up rows from RAWG keep RAWG's ids. Rows created from any other source get
+# generated ids, and the migration starts those sequences here so the two never collide.
+GENERATED_ID_FLOOR = 100_000_000
+
+
 class Game(Base):
-    """A video game, keyed by its RAWG id."""
+    """A video game, merged across the sources it was seen in."""
 
     __tablename__ = "games"
 
@@ -36,12 +41,20 @@ class Game(Base):
     slug: Mapped[str] = mapped_column(String, unique=True, index=True)
     name: Mapped[str] = mapped_column(String, index=True)
     released: Mapped[datetime | None]
+    # RAWG user rating (0-5) and its vote count. Only RAWG supplies these.
     rating: Mapped[float | None] = mapped_column(Float)
     ratings_count: Mapped[int | None]
+    # Metacritic critic score (0-100), from RAWG or from the Steam store page.
     metacritic: Mapped[int | None]
+    # IGDB's aggregated critic rating (0-100). Not Metacritic, so it is kept separate.
+    critic_rating: Mapped[float | None] = mapped_column(Float)
     playtime: Mapped[int | None]
     background_image: Mapped[str | None]
     clip: Mapped[str | None]
+
+    # Ids in the source catalogues (the RAWG id is `id` itself, for RAWG rows).
+    steam_appid: Mapped[int | None] = mapped_column(unique=True, index=True)
+    igdb_id: Mapped[int | None] = mapped_column(unique=True, index=True)
 
     updated_at: Mapped[datetime | None] = mapped_column(onupdate=func.now())
     created_at: Mapped[datetime | None] = mapped_column(server_default=func.now())
