@@ -1,54 +1,39 @@
-import { Link, NavLink, Route, Routes } from "react-router-dom";
+import { Link, Navigate, NavLink, Route, Routes } from "react-router-dom";
 
 import { useAuth } from "./auth";
-import { Login, Favorites, Register } from "./pages/Account";
+import { Favorites, Login, Register } from "./pages/Account";
 import GameDetail from "./pages/GameDetail";
 import Games from "./pages/Games";
 import Predictor from "./pages/Predictor";
 import Stats from "./pages/Stats";
-
-function Logo() {
-  return (
-    <svg className="brand-mark" viewBox="0 0 32 32" aria-hidden>
-      <rect width="32" height="32" rx="9" fill="var(--accent)" />
-      <path d="M8 21l5-6 4 4 7-9" fill="none" stroke="var(--on-accent)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 function Header() {
   const { user, signOut } = useAuth();
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <Link to="/" className="brand">
-          <Logo />
-          <span>
-            Game<span className="brand-accent">Insight</span>
-          </span>
+        <Link to="/" className="wordmark" aria-label="Game Insight, all games">
+          Game<span>Insight</span>
         </Link>
         <nav className="nav" aria-label="Main">
           <NavLink to="/" end>
             Games
           </NavLink>
-          <NavLink to="/stats">Statistics</NavLink>
-          <NavLink to="/predict">Predictor</NavLink>
+          <NavLink to="/stats">Catalogue</NavLink>
           <NavLink to="/favorites">Favourites</NavLink>
         </nav>
         <div className="account">
           {user ? (
             <>
-              <span className="avatar" title={user.email}>
-                {user.email[0].toUpperCase()}
+              <span className="account-name" title={user.email}>
+                {user.email}
               </span>
-              <button className="ghost small" onClick={signOut}>
+              <button className="link-button" onClick={signOut}>
                 Sign out
               </button>
             </>
           ) : (
-            <Link to="/login" className="button ghost small">
-              Sign in
-            </Link>
+            <Link to="/login">Sign in</Link>
           )}
         </div>
       </div>
@@ -65,7 +50,8 @@ export default function App() {
           <Route path="/" element={<Games />} />
           <Route path="/games/:id" element={<GameDetail />} />
           <Route path="/stats" element={<Stats />} />
-          <Route path="/predict" element={<Predictor />} />
+          <Route path="/estimate" element={<Predictor />} />
+          <Route path="/predict" element={<Navigate to="/estimate" replace />} />
           <Route path="/favorites" element={<Favorites />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -73,15 +59,16 @@ export default function App() {
             path="*"
             element={
               <div className="empty">
-                <h1>Page not found</h1>
-                <Link to="/">Back to games</Link>
+                <h1>Nothing at this address</h1>
+                <Link to="/">Back to all games</Link>
               </div>
             }
           />
         </Routes>
       </main>
       <footer className="footer">
-        Data from RAWG, Steam and IGDB · predictions from the MLflow <code>champion</code> model
+        <span>Game data from RAWG, Steam and IGDB. Scores from Metacritic.</span>
+        <Link to="/estimate">Estimate a game that isn't out yet</Link>
       </footer>
     </>
   );

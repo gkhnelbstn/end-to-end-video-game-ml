@@ -23,6 +23,17 @@ export interface Game {
   platforms: Lookup[];
   stores: Lookup[];
   tags: Lookup[];
+  /** The model's estimate; only on unscored games in lists. */
+  expected?: Expectation | null;
+}
+
+export type Reception = "acclaim" | "favourable" | "mixed" | "unfavourable";
+
+export interface Expectation {
+  score: number;
+  low: number;
+  high: number;
+  reception: Reception;
 }
 
 export interface User {
@@ -32,6 +43,7 @@ export interface User {
 
 export interface Prediction {
   predicted_metacritic: number;
+  expected: Expectation;
   model_name: string;
   model_version: string;
   game_id: number | null;
@@ -62,7 +74,10 @@ export interface GameQuery {
   genre?: string;
   platform?: string;
   scored?: boolean;
-  sort_by?: "name" | "released" | "rating" | "metacritic";
+  /** Inclusive ISO dates (YYYY-MM-DD). */
+  released_from?: string;
+  released_to?: string;
+  sort_by?: "name" | "released" | "rating" | "ratings_count" | "metacritic";
   sort_order?: "asc" | "desc";
   skip?: number;
   limit?: number;

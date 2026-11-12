@@ -226,3 +226,76 @@ def test_admin_pages_render_after_login(client, db):
         "/admin/admin-user/list",
     ):
         assert client.get(path).status_code == 200, path
+
+
+class _FixedModel:
+    """Stands in for the MLflow champion: every game is expected to score 92."""
+
+    def predict(self, frame):
+        return [92.0] * len(frame)
+
+    def info(self):
+        return {"model_name": "m", "version": "1", "metrics": {"test_mae": 6.4}}
+
+
+def test_unscored_games_carry_an_expected_reception(client, db, monkeypatch):
+    from src.backend import main
+
+    monkeypatch.setattr(main, "model_service", _FixedModel())
+    tag = models.Tag(id=1, name="Singleplayer", slug="singleplayer")
+    db.get(models.Game, 1).tags = [tag]  # genres, platforms and tags: enough to go on
+    scored = db.get(models.Game, 2)
+    scored.tags, scored.metacritic = [tag], 80  # has a real score: no estimate
+    db.commit()  # game 3 has no tags: too little to go on
+
+    games = {g["name"]: g for g in client.get("/api/games").json()}
+    assert games["Game A"]["expected"] == {
+        "score": 92.0,
+        "low": 86,
+        "high": 98,
+        "reception": "acclaim",
+    }
+    assert games["Game B"]["expected"] is None
+    assert games["Game C"]["expected"] is None
+
+    detail = client.get("/api/games/1/predicted-metacritic").json()
+    assert detail["expected"]["reception"] == "acclaim"
+
+
+def test_game_list_works_without_a_model(client, db, monkeypatch):
+    from src.backend import main
+    from src.ml.serving import ModelUnavailableError
+
+    class NoModel:
+        def predict(self, frame):
+            raise ModelUnavailableError("no champion")
+
+    monkeypatch.setattr(main, "model_service", NoModel())
+    db.get(models.Game, 1).tags = [models.Tag(id=1, name="Singleplayer", slug="singleplayer")]
+    db.commit()
+    response = client.get("/api/games")
+    assert response.status_code == 200
+    assert all(g["expected"] is None for g in response.json())
+
+
+def test_release_window_and_unscored_filters(client, db):
+    db.get(models.Game, 1).metacritic = 70
+    db.commit()
+    window = client.get("/api/games?released_from=2023-01-01&released_to=2023-05-01&sort_by=name")
+    assert names(window) == ["Game A", "Game C"]
+    assert names(client.get("/api/games?released_to=2022-12-31")) == ["Game B"]
+    assert sorted(names(client.get("/api/games?scored=false"))) == ["Game B", "Game C"]
+
+
+def test_reception_bands():
+    from src.backend.main import reception
+
+    assert [reception(s) for s in (95, 90, 89.9, 75, 74, 50, 49)] == [
+        "acclaim",
+        "acclaim",
+        "favourable",
+        "favourable",
+        "mixed",
+        "mixed",
+        "unfavourable",
+    ]

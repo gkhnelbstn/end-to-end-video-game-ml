@@ -3,10 +3,11 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import date
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, text
@@ -168,10 +169,14 @@ def list_games(
     sort_by: str | None = None,
     sort_order: str = "asc",
     skip: int = 0,
-    limit: int = 100,
-    scored: bool = False,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    scored: bool | None = None,
+    released_from: date | None = None,
+    released_to: date | None = None,
 ):
-    return crud.get_games(
+    """Games, filtered and sorted. Unscored games get the model's `expected` reception
+    when there is enough to go on (see `has_enough_for_estimate`)."""
+    games = crud.get_games(
         db=db,
         scored=scored,
         search=search,
@@ -182,7 +187,27 @@ def list_games(
         sort_order=sort_order,
         skip=skip,
         limit=limit,
+        released_from=released_from,
+        released_to=released_to,
     )
+    results = [schemas.Game.model_validate(game) for game in games]
+    unscored = [
+        i
+        for i, game in enumerate(games)
+        if game.metacritic is None and has_enough_for_estimate(game)
+    ]
+    if unscored:
+        try:
+            # One model call for the whole page.
+            scores = model_service.predict(
+                features.to_frame([features.game_to_row(games[i]) for i in unscored])
+            )
+            spread = estimate_spread()
+        except ModelUnavailableError:
+            return results  # the catalogue works without a model; estimates just don't show
+        for i, score in zip(unscored, scores, strict=True):
+            results[i].expected = expectation(score, spread)
+    return results
 
 
 def get_game_or_404(game_id: int, db: DbSession) -> models.Game:
@@ -210,6 +235,43 @@ def list_platforms(db: DbSession):
 # ------------------ Metacritic predictions (MLflow champion model) ------------------
 
 
+DEFAULT_SPREAD = 8.0
+
+
+def reception(score: float) -> schemas.Reception:
+    """Metacritic's own wording: 90+ acclaim, 75+ favourable, 50+ mixed, else unfavourable."""
+    if score >= 90:
+        return "acclaim"
+    if score >= 75:
+        return "favourable"
+    if score >= 50:
+        return "mixed"
+    return "unfavourable"
+
+
+def estimate_spread() -> float:
+    """Half-width of the shown range: the champion's average miss on unseen games."""
+    return float(model_service.info()["metrics"].get("test_mae", DEFAULT_SPREAD))
+
+
+def expectation(score: float, spread: float) -> schemas.Expectation:
+    return schemas.Expectation(
+        score=score,
+        low=max(0, round(score - spread)),
+        high=min(100, round(score + spread)),
+        reception=reception(score),
+    )
+
+
+def has_enough_for_estimate(game: models.Game) -> bool:
+    """Lists only show an estimate when the model has more than a title to go on.
+
+    Most unscored games are small releases with no genre, platform or tag data, and an
+    estimate for those would be the average score in disguise.
+    """
+    return bool(game.genres) and bool(game.platforms) and bool(game.tags)
+
+
 def _predict(rows: list[dict]) -> list[float]:
     try:
         return model_service.predict(features.to_frame(rows))
@@ -224,6 +286,7 @@ def predict_game_metacritic(game: Annotated[models.Game, Depends(get_game_or_404
     info = model_service.info()
     return schemas.MetacriticPrediction(
         predicted_metacritic=prediction,
+        expected=expectation(prediction, estimate_spread()),
         model_name=info["model_name"],
         model_version=info["version"],
         game_id=game.id,
@@ -248,6 +311,7 @@ def predict_metacritic(game: schemas.GameFeatures):
     info = model_service.info()
     return schemas.MetacriticPrediction(
         predicted_metacritic=prediction,
+        expected=expectation(prediction, estimate_spread()),
         model_name=info["model_name"],
         model_version=info["version"],
     )

@@ -31,8 +31,7 @@ function Credentials({ mode }: { mode: "login" | "register" }) {
   };
 
   return (
-    <div className="panel narrow">
-      <p className="eyebrow">{mode === "login" ? "Welcome back" : "Get started"}</p>
+    <div className="auth-card">
       <h1>{mode === "login" ? "Sign in" : "Create an account"}</h1>
       <p className="subtle">Save games to your favourites and find them again later.</p>
       <form className="form" onSubmit={submit}>
@@ -51,7 +50,7 @@ function Credentials({ mode }: { mode: "login" | "register" }) {
           />
         </label>
         {error && <ErrorNotice error={error} />}
-        <button className="primary" type="submit" disabled={busy}>
+        <button className="button" type="submit" disabled={busy}>
           {busy ? "One moment…" : mode === "login" ? "Sign in" : "Create account"}
         </button>
       </form>
@@ -82,7 +81,7 @@ export function Favorites() {
       <div className="empty">
         <h1>Your favourites</h1>
         <p className="subtle">Sign in to keep a list of games you care about.</p>
-        <Link to="/login" className="button primary">
+        <Link to="/login" className="button">
           Sign in
         </Link>
       </div>
@@ -90,18 +89,17 @@ export function Favorites() {
   }
   return (
     <>
-      <section className="page-intro">
-        <p className="eyebrow">Favourites</p>
-        <h1>Your games</h1>
-        <p className="lede">Signed in as {user.email}</p>
-      </section>
+      <header className="page-head">
+        <h1>Favourites</h1>
+        <p>Games you saved, newest additions last.</p>
+      </header>
       {favorites.error && <ErrorNotice error={favorites.error} onRetry={favorites.reload} />}
       {favorites.data?.length === 0 && (
         <Notice>
-          No favourites yet. Open a game and press <em>Add to favourites</em>.
+          Nothing saved yet. Open any game and choose <em>Save to favourites</em>.
         </Notice>
       )}
-      <div className="game-grid">
+      <div className="grid">
         {favorites.data?.map((game) => (
           <GameCard game={game} key={game.id} />
         ))}

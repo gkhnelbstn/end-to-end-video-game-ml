@@ -3,118 +3,125 @@ import { Link, useParams } from "react-router-dom";
 
 import { api, ApiError } from "../api";
 import { useAuth } from "../auth";
-import { ErrorNotice, fmt, Notice, Score, ScoreScale } from "../components/ui";
+import {
+  CriticScore,
+  ErrorNotice,
+  fmt,
+  HowEstimatesWork,
+  Notice,
+  RECEPTION_LABEL,
+  ReceptionStrip,
+  receptionOf,
+  releaseDate,
+} from "../components/ui";
 import { useAsync } from "../hooks";
-import type { Game } from "../types";
+import type { Expectation, Game } from "../types";
 
-function Chips({ items }: { items: { id: number; name: string }[] }) {
-  if (items.length === 0) return <span className="subtle">–</span>;
-  return (
-    <div className="chips">
-      {items.map((item) => (
-        <span className="chip" key={item.id}>
-          {item.name}
-        </span>
-      ))}
-    </div>
-  );
+function Names({ items }: { items: { id: number; name: string }[] }) {
+  if (items.length === 0) return <span className="subtle">Not listed</span>;
+  return <>{items.map((i) => i.name).join(", ")}</>;
 }
 
-function ScorePanel({ game }: { game: Game }) {
+/** How the real score compares with what the model would have said before launch. */
+function hindsight(actual: number, e: Expectation): string {
+  const range = `${e.low}–${e.high}`;
+  if (actual > e.high) return `From what was known before launch, we'd have put it at ${range}. It beat that by ${actual - e.high}.`;
+  if (actual < e.low) return `From what was known before launch, we'd have put it at ${range}. It fell short by ${e.low - actual}.`;
+  return `From what was known before launch, we'd have put it at ${range}, and it landed inside that range.`;
+}
+
+function Reception({ game }: { game: Game }) {
   const prediction = useAsync(() => api.predictedMetacritic(game.id), [game.id]);
-  const model = useAsync(api.model, []);
-  const p = prediction.data;
-  const mae = model.data?.metrics.test_mae;
-  const diff = p && game.metacritic !== null ? p.predicted_metacritic - game.metacritic : null;
+  const expected = prediction.data?.expected;
+  const thin = game.genres.length === 0 || game.tags.length === 0;
+  const noModel = prediction.error instanceof ApiError && prediction.error.status === 503;
+
+  if (game.metacritic !== null) {
+    return (
+      <section className="verdict" aria-label="Reception">
+        <div className="verdict-head">
+          <CriticScore value={game.metacritic} size="lg" />
+          <div>
+            <p className="verdict-word">{RECEPTION_LABEL[receptionOf(game.metacritic)]}</p>
+            <p className="verdict-source">Metacritic critics' score</p>
+          </div>
+        </div>
+        <ReceptionStrip actual={game.metacritic} expected={expected} scale />
+        {expected && <p className="verdict-aside">{hindsight(game.metacritic, expected)}</p>}
+        {game.critic_rating !== null && (
+          <p className="verdict-aside">IGDB's critic average is {Math.round(game.critic_rating)}.</p>
+        )}
+      </section>
+    );
+  }
 
   return (
-    <div className="panel">
-      <h2>Scores</h2>
-      <div className="score-pair">
-        <div className="score-item">
-          <Score value={game.metacritic} size="lg" title="Metacritic" />
-          <div>
-            <strong>Metacritic</strong>
-            <small>{game.metacritic === null ? "not scored" : "critics' score"}</small>
+    <section className="verdict" aria-label="Expected reception">
+      {expected ? (
+        <>
+          <div className="verdict-head">
+            <span className={`critic expected ${expected.reception} lg`} aria-hidden>
+              ≈{Math.round(expected.score)}
+            </span>
+            <div>
+              <p className="verdict-word">{RECEPTION_LABEL[expected.reception]}</p>
+              <p className="verdict-source">
+                Expected · likely {expected.low}–{expected.high}
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="score-item">
-          {p ? (
-            <Score value={p.predicted_metacritic} size="lg" title="Predicted Metacritic" />
-          ) : (
-            <span className="score none lg">{prediction.loading ? "…" : "–"}</span>
-          )}
-          <div>
-            <strong>Predicted</strong>
-            <small>
-              {p
-                ? `model v${p.model_version}${diff !== null ? ` · ${diff > 0 ? "+" : ""}${diff.toFixed(1)} vs actual` : ""}`
-                : prediction.loading
-                  ? "asking the model…"
-                  : "unavailable"}
-            </small>
-          </div>
-        </div>
-      </div>
-      {(game.metacritic !== null || p) && (
-        <ScoreScale actual={game.metacritic} predicted={p?.predicted_metacritic} spread={p ? mae : null} />
-      )}
-      {prediction.error &&
-        (prediction.error instanceof ApiError && prediction.error.status === 503 ? (
-          <Notice>No trained model is available yet.</Notice>
-        ) : (
-          <ErrorNotice error={prediction.error} onRetry={prediction.reload} prefix="Prediction failed" />
-        ))}
-      {game.critic_rating !== null && (
-        <p className="subtle small">
-          IGDB critics average: <strong>{Math.round(game.critic_rating)}</strong>
-        </p>
-      )}
-      {p && (
-        <p className="subtle small">
-          The model only sees the title, release date, ESRB rating, genres, platforms, stores and tags, not reviews or
-          sales.{mae !== undefined && ` The shaded band is ± its average miss (${mae.toFixed(1)} points).`}{" "}
-          <Link to="/predict">How it works</Link>
-        </p>
-      )}
-    </div>
+          <ReceptionStrip expected={expected} scale />
+          <p className="verdict-aside">
+            Critics haven't scored this one. The range is our estimate from its genres, platforms, tags and release
+            details.
+            {thin && " Little is known about it yet, so read it loosely."}
+          </p>
+        </>
+      ) : prediction.loading ? (
+        <div className="skeleton" style={{ minHeight: 120 }} />
+      ) : noModel ? (
+        <p className="verdict-aside">Critics haven't scored this one, and no estimate is available yet.</p>
+      ) : prediction.error ? (
+        <ErrorNotice error={prediction.error} onRetry={prediction.reload} prefix="Could not load the estimate" />
+      ) : null}
+    </section>
   );
 }
 
-function FavoriteButton({ gameId }: { gameId: number }) {
+function SaveButton({ gameId }: { gameId: number }) {
   const { user } = useAuth();
-  const [isFavorite, setIsFavorite] = useState<boolean | null>(null);
+  const [saved, setSaved] = useState<boolean | null>(null);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     if (!user) return;
     api.favorites(user.id).then(
-      (games) => setIsFavorite(games.some((g) => g.id === gameId)),
-      () => setIsFavorite(false),
+      (games) => setSaved(games.some((g) => g.id === gameId)),
+      () => setSaved(false),
     );
   }, [user, gameId]);
 
   if (!user) {
     return (
-      <Link to="/login" className="button ghost">
-        ☆ Sign in to save
+      <Link to="/login" className="button quiet">
+        Sign in to save
       </Link>
     );
   }
   const toggle = async () => {
     setError(undefined);
     try {
-      if (isFavorite) await api.removeFavorite(user.id, gameId);
+      if (saved) await api.removeFavorite(user.id, gameId);
       else await api.addFavorite(user.id, gameId);
-      setIsFavorite(!isFavorite);
+      setSaved(!saved);
     } catch (e) {
       setError((e as Error).message);
     }
   };
   return (
     <>
-      <button className={isFavorite ? "ghost" : "primary"} disabled={isFavorite === null} onClick={toggle}>
-        {isFavorite ? "★ Remove from favourites" : "☆ Add to favourites"}
+      <button className={saved ? "button quiet" : "button"} disabled={saved === null} onClick={toggle} aria-pressed={!!saved}>
+        {saved ? "Saved to favourites" : "Save to favourites"}
       </button>
       {error && <Notice kind="error">{error}</Notice>}
     </>
@@ -130,8 +137,8 @@ export default function GameDetail() {
     if (game.error instanceof ApiError && game.error.status === 404) {
       return (
         <div className="empty">
-          <h1>Game not found</h1>
-          <Link to="/">Back to games</Link>
+          <h1>No game with this address</h1>
+          <Link to="/">Back to all games</Link>
         </div>
       );
     }
@@ -139,84 +146,85 @@ export default function GameDetail() {
   }
   const g = game.data!;
   const steamUrl = g.steam_appid ? `https://store.steampowered.com/app/${g.steam_appid}` : null;
-  const released = g.released
-    ? new Date(g.released).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
-    : "TBA";
+  const upcoming = g.released ? new Date(g.released) > new Date() : true;
 
   return (
-    <>
-      <section className="detail-hero" style={g.background_image ? { ["--hero" as string]: `url("${g.background_image}")` } : undefined}>
-        <div className="detail-hero-inner">
+    <article className="game">
+      <header
+        className={`game-hero${g.background_image ? " has-image" : ""}`}
+        style={g.background_image ? { ["--hero" as string]: `url("${g.background_image}")` } : undefined}
+      >
+        <div className="game-hero-inner">
           <Link to="/" className="back">
-            ← All games
+            All games
           </Link>
           <h1>{g.name}</h1>
-          <p className="detail-sub">
-            {released}
-            {g.esrb_rating && <span className="pill">ESRB {g.esrb_rating}</span>}
+          <p className="game-when">
+            {upcoming && g.released ? "Out " : ""}
+            {releaseDate(g.released)}
+            {g.esrb_rating && <span className="rating-mark">ESRB {g.esrb_rating}</span>}
           </p>
-          <div className="detail-actions">
-            <FavoriteButton gameId={g.id} />
+          <div className="game-actions">
+            <SaveButton gameId={g.id} />
             {steamUrl && (
-              <a className="button ghost" href={steamUrl} target="_blank" rel="noreferrer">
-                Steam store ↗
+              <a className="button quiet" href={steamUrl} target="_blank" rel="noreferrer">
+                Open on Steam
               </a>
             )}
           </div>
         </div>
-      </section>
+      </header>
 
-      <div className="detail">
-        <div className="stack-lg">
+      <div className="game-body">
+        <div className="game-main">
+          <Reception game={g} />
           {g.clip && g.clip.endsWith(".mp4") && (
-            <div className="panel">
-              <h2>Trailer</h2>
-              <video src={g.clip} controls preload="none" poster={g.background_image ?? undefined} className="video" />
-            </div>
+            <video src={g.clip} controls preload="none" poster={g.background_image ?? undefined} className="video" />
           )}
-          <div className="panel">
-            <h2>Details</h2>
-            <dl className="facts">
-              <dt>Genres</dt>
-              <dd>
-                <Chips items={g.genres} />
-              </dd>
-              <dt>Platforms</dt>
-              <dd>
-                <Chips items={g.platforms} />
-              </dd>
-              <dt>Stores</dt>
-              <dd>
-                <Chips items={g.stores} />
-              </dd>
-              {g.rating !== null && g.rating > 0 && (
-                <>
-                  <dt>User rating</dt>
-                  <dd>
-                    {g.rating.toFixed(2)} / 5
-                    {g.ratings_count ? <span className="subtle"> · {fmt(g.ratings_count)} ratings</span> : null}
-                  </dd>
-                </>
-              )}
-              {g.playtime ? (
-                <>
-                  <dt>Average playtime</dt>
-                  <dd>{g.playtime} h</dd>
-                </>
-              ) : null}
-            </dl>
-          </div>
           {g.tags.length > 0 && (
-            <div className="panel">
-              <h2>Tags</h2>
-              <Chips items={g.tags} />
-            </div>
+            <section>
+              <h2 className="section-title">Tagged as</h2>
+              <ul className="tag-list">
+                {g.tags.map((t) => (
+                  <li key={t.id}>{t.name}</li>
+                ))}
+              </ul>
+            </section>
           )}
+          <HowEstimatesWork />
         </div>
-        <aside className="stack-lg sticky">
-          <ScorePanel game={g} />
+        <aside className="game-facts">
+          <dl>
+            <dt>Genres</dt>
+            <dd>
+              <Names items={g.genres} />
+            </dd>
+            <dt>Platforms</dt>
+            <dd>
+              <Names items={g.platforms} />
+            </dd>
+            <dt>Stores</dt>
+            <dd>
+              <Names items={g.stores} />
+            </dd>
+            {g.rating !== null && g.rating > 0 && (
+              <>
+                <dt>Players</dt>
+                <dd>
+                  {g.rating.toFixed(1)} out of 5
+                  {g.ratings_count ? <span className="subtle"> from {fmt(g.ratings_count)} ratings</span> : null}
+                </dd>
+              </>
+            )}
+            {g.playtime ? (
+              <>
+                <dt>Typical playtime</dt>
+                <dd>{g.playtime} hours</dd>
+              </>
+            ) : null}
+          </dl>
         </aside>
       </div>
-    </>
+    </article>
   );
 }

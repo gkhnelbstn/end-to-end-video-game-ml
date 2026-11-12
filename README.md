@@ -144,11 +144,11 @@ A test (`tests/test_migrations.py`) fails CI if the migrations and the models dr
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/games` | List games. Query: `search`, `genre`, `platform` (slugs), `rating` (minimum), `scored` (only games with a Metacritic score), `sort_by` (`name`, `released`, `rating`, `metacritic`), `sort_order`, `skip`, `limit`. |
+| `GET /api/games` | List games. Query: `search`, `genre`, `platform` (slugs), `rating` (minimum), `scored` (`true`: only games with a Metacritic score, `false`: only games without), `released_from` / `released_to` (inclusive dates), `sort_by` (`name`, `released`, `rating`, `ratings_count`, `metacritic`), `sort_order`, `skip`, `limit` (1 to 100). Unscored games that have genres, platforms and tags carry `expected`: the champion model's estimate as `{score, low, high, reception}`, computed in one model call per page. |
 | `GET /api/games/{id}` | One game with genres, platforms, stores and tags. |
 | `GET /api/genres`, `GET /api/platforms` | Filter options. |
 | `GET /api/stats/...` | `summary`, `games-per-year`, `metacritic-distribution`, `avg-rating-by-genre` (unrated games excluded), `rating-distribution`, `top-genres`, `top-platforms`, `top-stores`, `esrb-ratings`. |
-| `GET /api/games/{id}/predicted-metacritic` | The champion model's prediction for a stored game, next to its actual score. |
+| `GET /api/games/{id}/predicted-metacritic` | The champion model's prediction for a stored game, next to its actual score, with the same `expected` range. |
 | `POST /api/predictions/metacritic` | Prediction for a hypothetical game; every field is optional: `{"name": "Starfall III", "release_year": 2025, "release_month": 11, "esrb_rating": "Mature", "genres": ["RPG"], "platforms": ["PC"], "stores": ["Steam"], "tags": ["Singleplayer"]}`. |
 | `GET /api/ml/model`, `POST /api/ml/reload` | Which model version is served and its metrics; re-check the `champion` alias now. |
 | `POST /api/users`, `POST /api/auth/login` | Register and log in (dashboard accounts). |
@@ -183,20 +183,28 @@ after release, and Steam and IGDB rows do not have them.
   game never moves between train and test as data grows, so model versions are compared
   fairly), compares a mean-score baseline, Ridge regression and histogram gradient
   boosting by 5-fold cross-validated MAE, refits the best on the training part and scores
-  it on the test set.
+  it on the test set. Gradient boosting uses settings found by a randomised search
+  (`HGB_PARAMS`); `python -m src.ml.train --tune 30` runs the search again (on the
+  training part only) and logs it as its own nested run.
 - `serving.py`: the API loads `models:/metacritic-predictor@champion` lazily and re-checks
   the alias every 60 seconds (`MODEL_REFRESH_SECONDS`), so a newly promoted version is
-  served without a restart. Without a model, prediction endpoints answer 503.
-- Dashboard: each game's page shows the predicted next to the actual score, and the
-  **Predictor** page shows the served model's metrics and predicts a score for any
-  combination of those inputs.
+  served without a restart. Without a model, prediction endpoints answer 503, and game
+  lists simply come without estimates.
+- In the product, an estimate is never shown as a bare number. It is a range (the
+  estimate give or take the champion's test MAE) with Metacritic's wording for the band it
+  falls in (acclaim 90+, favourable 75+, mixed 50+, unfavourable below), drawn as a
+  hatched range on the same 0-100 strip where real scores are a solid mark. Lists only
+  show one when a game has genres, platforms and tags; most unscored games have none of
+  these, and their estimate would just be the average score.
 - Older model versions keep working after the inputs grew: MLflow passes a model only the
   columns in its signature, so a champion trained on fewer inputs is still served and is
   still compared fairly against a new candidate.
 
 **What MLflow records for every training run** (experiment `metacritic-prediction`):
 one parent run with dataset size per source, the logged training dataset, the best
-model's CV and test metrics (MAE, RMSE, R²), the baseline's test MAE, permutation
+model's CV and test metrics (MAE, RMSE, R², and per reception band: the MAE for games
+truly in each band and the balanced accuracy of landing in the right band), the
+baseline's test MAE, permutation
 importance per input, the 25 largest test errors (`largest_test_errors.csv`), and one
 nested run per candidate. The best model is logged with its signature and an input
 example and registered as a new version of `metacritic-predictor`. The `champion` alias
@@ -210,14 +218,15 @@ games), from `notebooks/metacritic-analysis.ipynb`:
 | --- | --- | --- | --- |
 | Mean baseline | 8.62 | 8.28 | 0.00 |
 | Ridge | 7.72 | 7.62 | 0.15 |
-| Histogram gradient boosting (selected) | 7.10 | 6.97 | 0.27 |
+| Histogram gradient boosting (selected) | 7.06 | 6.81 | 0.28 |
 
-The model is 16% better than always guessing the mean, but metadata explains only a small
+The model is 18% better than always guessing the mean, but metadata explains only a small
 part of the score: it is off by about 7 points on average and pulls extreme scores toward
-the middle (games scored above 90 are under-predicted by about 11 points). Tags are the
-most informative input, then platforms, release year, genres, stores and the title; the
-release month adds nothing measurable. With only release year, genres, platforms and tags
-the same model had a test MAE of 7.13 and R² of 0.23, so the extra inputs help, modestly.
+the middle (games scored 90 or above are off by about 11 points, games below 50 by 26).
+Tags are the most informative input, then platforms, stores, release year, genres and the
+title; the ESRB rating and release month add almost nothing. With only release year,
+genres, platforms and tags and the earlier hand-picked settings, gradient boosting had a
+test MAE of 7.13 and R² of 0.23.
 
 ![Predicted vs actual Metacritic on held-out games](reports/figures/predicted_vs_actual.png)
 
@@ -228,6 +237,34 @@ by year, the score distribution, genre and tag associations, and permutation imp
 ```bash
 uv run jupyter nbconvert --to notebook --execute --inplace notebooks/metacritic-analysis.ipynb
 ```
+
+**On the full catalogue** (every CSV seeded: 7,056 scored games, 5,649 for training and
+1,407 for testing, same hash split), the served champion has a test MAE of 7.65 and R² of
+0.24, against 9.05 for the mean baseline and 7.80 for gradient boosting with the earlier
+hand-picked settings.
+
+**The extremes are the hard part.** Fewer than 5% of scored games are below 50, and fewer
+than 5% are 90 or above, and the model's estimates spread half as wide as the real scores (standard
+deviation 6.0 against 11.8). Per band, the champion is off by 6.7 points for mixed games
+(50-74) and 6.0 for favourable ones (75-89), but by 13.0 for acclaimed games and 25.5 for
+the few below 50. These ideas were measured on the same split and not adopted:
+
+| Tried | Test MAE | Balanced band accuracy | Per-band MAE: <50 / 90+ | Verdict |
+| --- | --- | --- | --- | --- |
+| Champion (tuned gradient boosting) | 7.65 | 0.34 | 25.5 / 13.0 | served |
+| Weighting rare bands up (inverse square-root frequency) | 7.85 | 0.37 | 22.8 / 11.3 | better at the extremes, worse for most games |
+| Weighting rare bands up (inverse frequency) | 8.81 | 0.36 | 19.4 / 13.3 | too costly overall (earlier settings) |
+| Predicting the band directly (balanced classifier) | – | 0.42 | – | lands in the right band more often, but gives no score or range |
+| Developer, publisher, series and engine from Wikidata, as indicators | 7.75 | – | – | earlier settings; most studios are too rare to survive the indicator filter |
+| The same, as each studio's/series' cross-fitted average score | 7.68 | – | – | no gain over the tuned model |
+
+Oversampling in the style of SMOTE was not used: it interpolates between examples, which
+means nothing for sets of genre, platform and tag indicators, and weighting rare cases
+does the same job without inventing games. Review text is left out on purpose too: it
+only exists after release and is the label in other words, so a model that read it
+would not be estimating anything. The numbers above suggest the limit is information,
+not the learner: before release, a game's metadata says little about whether it will be
+a classic or a flop.
 
 **Retraining.** Every Monday after the Steam ingestion, from the task manager
 (`train_metacritic_model`), or by hand:
@@ -318,11 +355,15 @@ npm test           # component tests (Vitest, API mocked)
 npm run build      # type check + production build into dist/
 ```
 
-Pages: games (headline numbers, search, genre/platform filters, a "scored only" toggle,
-sorting; filters live in the URL), a page per game with its Metacritic score and the
-model's prediction on one 0-100 scale, statistics, the predictor, and
-sign-in/registration with a favourites list. When the API cannot be reached the
-dashboard says so and offers a retry. It follows the OS light/dark setting.
+Pages: games (title search, a genre rail, platform and sort controls, a "reviewed only"
+toggle; filters live in the URL; without filters, shelves for upcoming games, recent
+games critics never scored, and recently reviewed games), a page per game (the critics'
+score, or the expected reception when there is none; for scored games, how the score
+compares with what the model would have said), the catalogue in numbers, an
+"estimate a game that isn't out yet" page (`/estimate`, linked from the footer and from
+"How estimates work"), and sign-in/registration with a favourites list. When the API
+cannot be reached the dashboard says so and offers a retry. It follows the OS light/dark
+setting.
 
 ### Project layout
 
@@ -345,7 +386,10 @@ dashboard says so and offers a retry. It follows the OS light/dark setting.
 ## Roadmap
 
 - Verify the IGDB client against the live API.
-- Richer model inputs: descriptions, developer and publisher history, pre-release signals.
+- Richer model inputs: store-page descriptions (pre-release text) and pre-release
+  signals such as wishlists. Developer and publisher history from Wikidata was tried and
+  did not help (see Machine learning).
+- Per-game uncertainty (quantile models) instead of one range width for every game.
 - Real authentication (tokens) for the dashboard and the task endpoints.
 - Persistent schedules for the task manager.
 

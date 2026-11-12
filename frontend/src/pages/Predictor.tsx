@@ -1,16 +1,11 @@
 import { useState, type FormEvent } from "react";
 
 import { api } from "../api";
-import { ErrorNotice, Score, ScoreScale, scoreClass, Stat } from "../components/ui";
+import { ErrorNotice, HowEstimatesWork, RECEPTION_LABEL, ReceptionStrip } from "../components/ui";
 import { useAsync } from "../hooks";
 import type { GameFeatures, Prediction } from "../types";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const VERDICT: Record<string, string> = {
-  good: "Generally favourable",
-  mid: "Mixed or average",
-  bad: "Generally unfavourable",
-};
 
 interface Form {
   name: string;
@@ -25,21 +20,21 @@ interface Form {
 
 const EMPTY: Form = {
   name: "",
-  year: new Date().getFullYear(),
+  year: new Date().getFullYear() + 1,
   month: null,
   esrb: "",
   genres: [],
-  platforms: ["PC"],
+  platforms: [],
   stores: [],
-  tags: "Singleplayer",
+  tags: "",
 };
 
 const EXAMPLES: { label: string; form: Form }[] = [
   {
-    label: "Big console RPG sequel",
+    label: "A big-budget RPG sequel",
     form: {
       name: "Starfall Chronicles III",
-      year: 2025,
+      year: new Date().getFullYear() + 1,
       month: 11,
       esrb: "Mature",
       genres: ["RPG", "Action"],
@@ -49,15 +44,15 @@ const EXAMPLES: { label: string; form: Form }[] = [
     },
   },
   {
-    label: "Small casual puzzle game",
+    label: "A small mobile puzzler",
     form: {
       name: "Block Party",
-      year: 2025,
+      year: new Date().getFullYear() + 1,
       month: 3,
       esrb: "Everyone",
       genres: ["Casual", "Puzzle"],
-      platforms: ["PC", "iOS", "Android"],
-      stores: ["Steam"],
+      platforms: ["iOS", "Android"],
+      stores: ["App Store", "Google Play"],
       tags: "Singleplayer, 2D",
     },
   },
@@ -67,52 +62,38 @@ function toggle(list: string[], value: string): string[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 }
 
-function ChipPicker({ options, selected, onChange }: { options: string[]; selected: string[]; onChange: (v: string[]) => void }) {
-  if (options.length === 0) return <div className="skeleton" style={{ minHeight: 32 }} />;
+function Picker({
+  legend,
+  options,
+  selected,
+  onChange,
+}: {
+  legend: string;
+  options: string[] | undefined;
+  selected: string[];
+  onChange: (v: string[]) => void;
+}) {
   return (
-    <div className="chips">
-      {options.map((name) => (
-        <button
-          type="button"
-          key={name}
-          className={`chip selectable${selected.includes(name) ? " selected" : ""}`}
-          aria-pressed={selected.includes(name)}
-          onClick={() => onChange(toggle(selected, name))}
-        >
-          {name}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ModelPanel() {
-  const model = useAsync(api.model, []);
-  if (model.loading) return <div className="skeleton" style={{ minHeight: 140 }} />;
-  if (model.error) return <ErrorNotice error={model.error} onRetry={model.reload} />;
-  const m = model.data!;
-  const mae = m.metrics.test_mae;
-  const baseline = m.metrics.baseline_test_mae;
-  const gain = mae !== undefined && baseline ? (1 - mae / baseline) * 100 : null;
-  return (
-    <div className="panel">
-      <h2>About the model</h2>
-      <div className="stats-row">
-        <Stat label="Version" value={`v${m.model_version}`} />
-        <Stat label="Avg. miss (MAE)" value={mae?.toFixed(1) ?? "–"} hint="points, unseen games" />
-        <Stat
-          label="Always-average guess"
-          value={baseline?.toFixed(1) ?? "–"}
-          hint={gain !== null ? `model is ${gain.toFixed(0)}% closer` : undefined}
-        />
-        <Stat label="R²" value={m.metrics.test_r2?.toFixed(2) ?? "–"} />
-      </div>
-      <p className="subtle small">
-        Scores are measured on a held-out fifth of the games the model never trained on. It is the version currently
-        promoted to <code>champion</code> in the MLflow registry (<code>{m.model_name}</code>). It only uses what is
-        known before release, so treat a prediction as a rough prior, not a review.
-      </p>
-    </div>
+    <fieldset className="picker">
+      <legend>{legend}</legend>
+      {options ? (
+        <div className="picker-options">
+          {options.map((name) => (
+            <button
+              type="button"
+              key={name}
+              className={`rail-chip${selected.includes(name) ? " on" : ""}`}
+              aria-pressed={selected.includes(name)}
+              onClick={() => onChange(toggle(selected, name))}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="skeleton" style={{ minHeight: 34 }} />
+      )}
+    </fieldset>
   );
 }
 
@@ -121,13 +102,13 @@ export default function Predictor() {
   const platforms = useAsync(() => api.topPlatforms(18), []);
   const stores = useAsync(() => api.topStores(10), []);
   const esrb = useAsync(api.esrbRatings, []);
-  const model = useAsync(api.model, []);
   const [form, setForm] = useState<Form>(EMPTY);
   const [result, setResult] = useState<Prediction>();
   const [error, setError] = useState<Error>();
   const [busy, setBusy] = useState(false);
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }));
+  const empty = form.genres.length === 0 && form.platforms.length === 0 && !form.tags.trim();
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -156,53 +137,45 @@ export default function Predictor() {
     }
   };
 
-  const mae = model.data?.metrics.test_mae;
-  const band = result ? scoreClass(result.predicted_metacritic) : "none";
-
+  const e = result?.expected;
   return (
-    <>
-      <section className="page-intro">
-        <p className="eyebrow">Score predictor</p>
-        <h1>What would critics give a game like this?</h1>
-        <p className="lede">
-          Describe a game the way a store page would before launch. The model estimates its Metacritic score from
-          those traits alone.
+    <div className="estimate">
+      <header className="page-head">
+        <h1>Estimate a game that isn't out yet</h1>
+        <p>
+          Describe it the way its store page would before launch. You'll get the reception critics are likely to give it,
+          judged against games that already have a score.
         </p>
-        <div className="chips">
-          <span className="subtle small">Try:</span>
-          {EXAMPLES.map((ex) => (
-            <button key={ex.label} type="button" className="chip selectable" onClick={() => setForm(ex.form)}>
-              {ex.label}
-            </button>
+        <p className="examples">
+          Or start from an example:{" "}
+          {EXAMPLES.map((ex, i) => (
+            <span key={ex.label}>
+              {i > 0 && ", "}
+              <button type="button" className="link-button" onClick={() => (setForm(ex.form), setResult(undefined))}>
+                {ex.label.toLowerCase()}
+              </button>
+            </span>
           ))}
-        </div>
-      </section>
+        </p>
+      </header>
 
-      <div className="detail">
-        <form className="panel form" onSubmit={submit}>
-          <div className="form-row">
-            <label className="field grow">
-              <span>
-                Title <span className="opt">optional</span>
-              </span>
-              <input value={form.name} placeholder="e.g. Starfall Chronicles III" onChange={(e) => set("name", e.target.value)} />
+      <div className="estimate-layout">
+        <form className="estimate-form" onSubmit={submit}>
+          <div className="field-row">
+            <label className="field wide">
+              Working title
+              <input value={form.name} placeholder="Sequels and remasters are read from the title" onChange={(ev) => set("name", ev.target.value)} />
             </label>
           </div>
-          <div className="form-row">
+          <div className="field-row">
             <label className="field">
               Release year
-              <input
-                type="number"
-                min={1970}
-                max={2100}
-                value={form.year}
-                onChange={(e) => set("year", Number(e.target.value))}
-              />
+              <input type="number" min={1970} max={2100} value={form.year} onChange={(ev) => set("year", Number(ev.target.value))} />
             </label>
             <label className="field">
               Month
-              <select value={form.month ?? ""} onChange={(e) => set("month", e.target.value ? Number(e.target.value) : null)}>
-                <option value="">Unknown</option>
+              <select value={form.month ?? ""} onChange={(ev) => set("month", ev.target.value ? Number(ev.target.value) : null)}>
+                <option value="">Not decided</option>
                 {MONTHS.map((m, i) => (
                   <option key={m} value={i + 1}>
                     {m}
@@ -212,8 +185,8 @@ export default function Predictor() {
             </label>
             <label className="field">
               ESRB rating
-              <select value={form.esrb} onChange={(e) => set("esrb", e.target.value)}>
-                <option value="">Unknown</option>
+              <select value={form.esrb} onChange={(ev) => set("esrb", ev.target.value)}>
+                <option value="">Not rated yet</option>
                 {esrb.data?.map((r) => (
                   <option key={r.name} value={r.name}>
                     {r.name}
@@ -222,62 +195,56 @@ export default function Predictor() {
               </select>
             </label>
           </div>
-          <fieldset className="field">
-            <legend>Genres</legend>
-            <ChipPicker options={(genres.data ?? []).map((g) => g.name)} selected={form.genres} onChange={(v) => set("genres", v)} />
-          </fieldset>
-          <fieldset className="field">
-            <legend>Platforms</legend>
-            <ChipPicker
-              options={(platforms.data ?? []).map((p) => p.name)}
-              selected={form.platforms}
-              onChange={(v) => set("platforms", v)}
-            />
-          </fieldset>
-          <fieldset className="field">
-            <legend>Stores</legend>
-            <ChipPicker options={(stores.data ?? []).map((s) => s.name)} selected={form.stores} onChange={(v) => set("stores", v)} />
-          </fieldset>
+          <Picker legend="Genres" options={genres.data?.map((g) => g.name)} selected={form.genres} onChange={(v) => set("genres", v)} />
+          <Picker legend="Platforms" options={platforms.data?.map((p) => p.name)} selected={form.platforms} onChange={(v) => set("platforms", v)} />
+          <Picker legend="Stores" options={stores.data?.map((s) => s.name)} selected={form.stores} onChange={(v) => set("stores", v)} />
           <label className="field">
-            <span>
-              Tags <span className="opt">comma separated, as on Steam</span>
-            </span>
-            <input value={form.tags} onChange={(e) => set("tags", e.target.value)} />
+            Tags, as you'd list them on Steam
+            <input value={form.tags} placeholder="Singleplayer, Story Rich, Open World" onChange={(ev) => set("tags", ev.target.value)} />
           </label>
           <div className="form-actions">
-            <button className="primary" type="submit" disabled={busy}>
-              {busy ? "Predicting…" : "Predict score"}
+            <button className="button" type="submit" disabled={busy || empty}>
+              {busy ? "Estimating…" : "Estimate reception"}
             </button>
-            <button type="button" className="ghost" onClick={() => (setForm(EMPTY), setResult(undefined))}>
-              Reset
+            <button type="button" className="link-button" onClick={() => (setForm(EMPTY), setResult(undefined))}>
+              Start over
             </button>
+            {empty && <span className="subtle small">Pick a genre, a platform or a tag first.</span>}
           </div>
         </form>
 
-        <aside className="stack-lg sticky">
-          <div className={`panel result ${band}`} aria-live="polite">
-            <h2>Prediction</h2>
-            {error && <ErrorNotice error={error} />}
-            {!error && !result && <p className="subtle">Pick some traits and press Predict score.</p>}
-            {result && (
-              <>
-                <div className="result-main">
-                  <Score value={result.predicted_metacritic} size="lg" />
-                  <div>
-                    <strong className="result-verdict">{VERDICT[band]}</strong>
-                    <small>
-                      {result.predicted_metacritic.toFixed(1)}
-                      {mae !== undefined && ` ± ${mae.toFixed(1)}`} · model v{result.model_version}
-                    </small>
-                  </div>
+        <aside className="estimate-result" aria-live="polite">
+          {error && <ErrorNotice error={error} />}
+          {!error && !e && (
+            <div className="verdict placeholder-verdict">
+              <p className="verdict-word">No estimate yet</p>
+              <ReceptionStrip scale />
+              <p className="verdict-aside">The result appears here, on the same scale critics use.</p>
+            </div>
+          )}
+          {e && (
+            <section className="verdict">
+              <div className="verdict-head">
+                <span className={`critic expected ${e.reception} lg`} aria-hidden>
+                  ≈{Math.round(e.score)}
+                </span>
+                <div>
+                  <p className="verdict-word">{RECEPTION_LABEL[e.reception]}</p>
+                  <p className="verdict-source">
+                    likely {e.low}–{e.high}
+                  </p>
                 </div>
-                <ScoreScale predicted={result.predicted_metacritic} spread={mae} />
-              </>
-            )}
-          </div>
-          <ModelPanel />
+              </div>
+              <ReceptionStrip expected={e} scale />
+              <p className="verdict-aside">
+                {form.name.trim() ? `${form.name.trim()} would` : "A game like this would"} most likely land between {e.low} and{" "}
+                {e.high}.
+              </p>
+            </section>
+          )}
+          <HowEstimatesWork tryLink={false} />
         </aside>
       </div>
-    </>
+    </div>
   );
 }

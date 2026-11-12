@@ -247,3 +247,23 @@ def test_invalid_features_are_rejected(client):
     assert (
         client.post("/api/predictions/metacritic", json={"release_year": 1800}).status_code == 422
     )
+
+
+def test_band_metrics_score_each_reception_band():
+    y_true = [40, 60, 80, 95]
+    y_pred = [55, 60, 80, 85]  # misses the flop and the classic, gets the middle right
+    metrics = train.band_metrics(y_true, y_pred, "test")
+    assert metrics["test_mae_unfavourable"] == 15 and metrics["test_mae_acclaim"] == 10
+    assert metrics["test_mae_mixed"] == 0 and metrics["test_mae_favourable"] == 0
+    assert metrics["test_band_accuracy_balanced"] == 0.5
+
+
+def test_tuning_searches_on_the_training_part(tracking):
+    summary = train.train(synthetic_games(), tune=2)
+    assert summary["status"] == "trained"
+    assert "test_band_accuracy_balanced" in summary
+    run = tracking.get_run(summary["run_id"])
+    children = tracking.search_runs(
+        [run.info.experiment_id], f"tags.mlflow.parentRunId = '{run.info.run_id}'"
+    )
+    assert "hist_gradient_boosting_search" in {c.data.params["model"] for c in children}

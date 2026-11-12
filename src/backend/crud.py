@@ -1,5 +1,7 @@
 """Database queries used by the API, the worker and the seeder."""
 
+from datetime import date, datetime, time, timedelta
+
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -101,12 +103,25 @@ def get_games(
     rating: float | None = None,
     sort_by: str | None = None,
     sort_order: str = "asc",
-    scored: bool = False,
+    scored: bool | None = None,
+    released_from: date | None = None,
+    released_to: date | None = None,
 ) -> list[models.Game]:
-    """List games with optional filtering and sorting. `scored` keeps games with a Metacritic."""
+    """List games with optional filtering and sorting.
+
+    `scored` True keeps games with a Metacritic score, False those without one. Both
+    release-date bounds are inclusive days.
+    """
     stmt = select(models.Game)
-    if scored:
+    if scored is True:
         stmt = stmt.where(models.Game.metacritic.is_not(None))
+    elif scored is False:
+        stmt = stmt.where(models.Game.metacritic.is_(None))
+    if released_from:
+        stmt = stmt.where(models.Game.released >= datetime.combine(released_from, time.min))
+    if released_to:
+        next_day = datetime.combine(released_to + timedelta(days=1), time.min)
+        stmt = stmt.where(models.Game.released < next_day)
 
     if search:
         stmt = stmt.where(models.Game.name.icontains(search))
@@ -117,7 +132,7 @@ def get_games(
     if rating:
         stmt = stmt.where(models.Game.rating >= rating)
 
-    if sort_by in ("name", "released", "rating", "metacritic"):
+    if sort_by in ("name", "released", "rating", "ratings_count", "metacritic"):
         column = getattr(models.Game, sort_by)
         stmt = stmt.order_by(
             column.desc().nulls_last() if sort_order == "desc" else column.asc().nulls_last()

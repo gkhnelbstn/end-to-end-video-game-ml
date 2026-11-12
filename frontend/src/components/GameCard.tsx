@@ -1,42 +1,46 @@
 import { Link } from "react-router-dom";
 
 import type { Game } from "../types";
-import { Cover, Score, year } from "./ui";
+import { Cover, CriticScore, ExpectedLine, RECEPTION_LABEL, ReceptionStrip, receptionOf, year } from "./ui";
 
 export default function GameCard({ game }: { game: Game }) {
   const platforms = game.platforms.map((p) => p.name);
+  const genres = game.genres.slice(0, 2).map((g) => g.name);
   return (
-    <Link to={`/games/${game.id}`} className="game-card">
-      <div className="game-card-media">
+    <Link to={`/games/${game.id}`} className="card">
+      <div className="card-media">
         <Cover game={game} />
-        {game.metacritic !== null && (
-          <span className="game-card-score">
-            <Score value={game.metacritic} size="sm" title="Metacritic" />
-          </span>
-        )}
       </div>
-      <div className="game-card-body">
-        <span className="game-card-title">{game.name}</span>
-        <span className="game-card-meta">
-          {year(game.released)}
-          {platforms.length > 0 && (
-            <>
-              {" · "}
-              {platforms.slice(0, 2).join(", ")}
-              {platforms.length > 2 && ` +${platforms.length - 2}`}
-            </>
-          )}
+      <div className="card-body">
+        <span className="card-title">{game.name}</span>
+        <span className="card-meta">
+          {[year(game.released), genres.join(" / "), platforms.length > 0 && platformSummary(platforms)]
+            .filter(Boolean)
+            .join(" · ")}
         </span>
-        {game.genres.length > 0 && (
-          <div className="chips">
-            {game.genres.slice(0, 3).map((g) => (
-              <span className="chip" key={g.id}>
-                {g.name}
+        <div className="card-reception">
+          {game.metacritic !== null ? (
+            <>
+              <ReceptionStrip actual={game.metacritic} />
+              <span className="card-verdict">
+                <CriticScore value={game.metacritic} size="sm" />
+                {RECEPTION_LABEL[receptionOf(game.metacritic)]}
               </span>
-            ))}
-          </div>
-        )}
+            </>
+          ) : game.expected ? (
+            <>
+              <ReceptionStrip expected={game.expected} />
+              <ExpectedLine expected={game.expected} />
+            </>
+          ) : (
+            <span className="card-unscored">Not reviewed yet</span>
+          )}
+        </div>
       </div>
     </Link>
   );
+}
+
+function platformSummary(platforms: string[]): string {
+  return platforms.length > 2 ? `${platforms[0]} +${platforms.length - 1}` : platforms.join(", ");
 }

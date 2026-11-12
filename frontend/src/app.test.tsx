@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import App from "./App";
 import { api, ApiError, isUnreachable } from "./api";
 import { AuthProvider } from "./auth";
-import { scoreClass } from "./components/ui";
+import { receptionOf } from "./components/ui";
 
 const GAME = {
   id: 3498,
@@ -54,13 +54,14 @@ function renderAt(path: string) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-test("score colour bands follow Metacritic's", () => {
-  expect([scoreClass(92), scoreClass(75), scoreClass(74), scoreClass(49), scoreClass(null)]).toEqual([
-    "good",
-    "good",
-    "mid",
-    "bad",
-    "none",
+test("reception bands follow Metacritic's wording", () => {
+  expect([90, 89, 75, 74, 50, 49].map(receptionOf)).toEqual([
+    "acclaim",
+    "favourable",
+    "favourable",
+    "mixed",
+    "mixed",
+    "unfavourable",
   ]);
 });
 
@@ -71,29 +72,52 @@ test("games page lists games from the API", async () => {
     "/api/platforms": () => json([]),
   });
   renderAt("/");
-  expect(await screen.findByText("Grand Theft Auto V")).toBeInTheDocument();
-  expect(screen.getByText("92")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /Grand Theft Auto V/ })).toHaveAttribute("href", "/games/3498");
+  // The same game shows up in the "Best of" shelf and in the full list.
+  expect((await screen.findAllByText("Grand Theft Auto V")).length).toBeGreaterThan(0);
+  expect(screen.getAllByText("92")[0]).toBeInTheDocument();
+  expect(screen.getAllByRole("link", { name: /Grand Theft Auto V/ })[0]).toHaveAttribute("href", "/games/3498");
 });
 
-test("game page shows actual and predicted Metacritic", async () => {
-  mockApi({
-    "/api/games/3498": () => json(GAME),
-    "/api/games/3498/predicted-metacritic": () =>
-      json({ predicted_metacritic: 85.9, model_name: "m", model_version: "2", game_id: 3498, actual_metacritic: 92 }),
-  });
+test("unreviewed games show the expected reception, not a score", async () => {
+  const upcoming = {
+    ...GAME,
+    id: 7,
+    name: "Starfall III",
+    metacritic: null,
+    released: "2099-03-01T00:00:00",
+    expected: { score: 83.4, low: 76, high: 91, reception: "favourable" },
+  };
+  mockApi({ "/api/games": () => json([upcoming]), "/api/genres": () => json([]), "/api/platforms": () => json([]) });
+  renderAt("/");
+  expect((await screen.findAllByText("Generally favourable")).length).toBeGreaterThan(0);
+  expect(screen.getAllByText("likely 76–91")[0]).toBeInTheDocument();
+  expect(screen.queryByText("83")).not.toBeInTheDocument();
+});
+
+const PREDICTION = {
+  predicted_metacritic: 85.9,
+  expected: { score: 85.9, low: 78, high: 94, reception: "favourable" },
+  model_name: "m",
+  model_version: "2",
+  game_id: 3498,
+  actual_metacritic: 92,
+};
+
+test("game page compares the real score with what was expected", async () => {
+  mockApi({ "/api/games/3498": () => json(GAME), "/api/games/3498/predicted-metacritic": () => json(PREDICTION) });
   renderAt("/games/3498");
   expect(await screen.findByRole("heading", { name: "Grand Theft Auto V" })).toBeInTheDocument();
-  expect(await screen.findByText(/model v2 · -6.1 vs actual/)).toBeInTheDocument();
+  expect(screen.getByText("Universal acclaim")).toBeInTheDocument();
+  expect(await screen.findByText(/we'd have put it at 78–94, and it landed inside that range/)).toBeInTheDocument();
 });
 
-test("game page explains a missing model", async () => {
+test("an unreviewed game without a model says so plainly", async () => {
   mockApi({
-    "/api/games/3498": () => json(GAME),
+    "/api/games/3498": () => json({ ...GAME, metacritic: null }),
     "/api/games/3498/predicted-metacritic": () => json({ detail: "No 'champion' version" }, 503),
   });
   renderAt("/games/3498");
-  expect(await screen.findByText("No trained model is available yet.")).toBeInTheDocument();
+  expect(await screen.findByText(/no estimate is available yet/)).toBeInTheDocument();
 });
 
 test("an unreachable backend gets a clear message and a retry", async () => {
@@ -101,8 +125,9 @@ test("an unreachable backend gets a clear message and a retry", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
-      const path = String(input).split("?")[0];
-      if (path === "/api/games") {
+      const url = String(input);
+      // The main list pages with skip=; the shelves above it do not.
+      if (url.startsWith("/api/games?") && url.includes("skip=")) {
         calls += 1;
         if (calls === 1) throw new TypeError("Failed to fetch");
         return json([GAME]);
@@ -114,7 +139,7 @@ test("an unreachable backend gets a clear message and a retry", async () => {
   expect(await screen.findByText(/Can't reach the API/)).toBeInTheDocument();
   expect(screen.queryByText(/Failed to fetch/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-  expect(await screen.findByText("Grand Theft Auto V")).toBeInTheDocument();
+  expect((await screen.findAllByText("Grand Theft Auto V")).length).toBeGreaterThan(0);
 });
 
 test("a proxy 502 without a body counts as unreachable", async () => {
@@ -122,11 +147,17 @@ test("a proxy 502 without a body counts as unreachable", async () => {
   await expect(api.genres()).rejects.toSatisfy(isUnreachable);
 });
 
-test("the predictor sends every trait to the API", async () => {
+test("the estimate page sends every trait to the API", async () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const path = String(input).split("?")[0];
     if (path === "/api/predictions/metacritic") {
-      return json({ predicted_metacritic: 81.2, model_name: "m", model_version: "3", game_id: null, actual_metacritic: null });
+      return json({
+        ...PREDICTION,
+        predicted_metacritic: 81.2,
+        expected: { score: 81.2, low: 73, high: 90, reception: "favourable" },
+        game_id: null,
+        actual_metacritic: null,
+      });
     }
     if (path === "/api/ml/model") {
       return json({ model_name: "m", model_version: "3", run_id: null, metrics: { test_mae: 8.4 }, tracking_uri: "" });
@@ -136,18 +167,21 @@ test("the predictor sends every trait to the API", async () => {
     return json([]);
   });
   vi.stubGlobal("fetch", fetchMock);
-  renderAt("/predict");
+  renderAt("/predict"); // the old address redirects
+  expect(screen.getByRole("button", { name: "Estimate reception" })).toBeDisabled();
   fireEvent.click(await screen.findByRole("button", { name: "RPG" }));
-  fireEvent.change(screen.getByLabelText(/Title/), { target: { value: "Space Saga II" } });
-  fireEvent.click(screen.getByRole("button", { name: "Predict score" }));
+  fireEvent.change(screen.getByLabelText(/Working title/), { target: { value: "Space Saga II" } });
+  fireEvent.change(screen.getByLabelText(/Tags/), { target: { value: "Singleplayer, Story Rich" } });
+  fireEvent.click(screen.getByRole("button", { name: "Estimate reception" }));
 
   expect(await screen.findByText("Generally favourable")).toBeInTheDocument();
+  expect(screen.getByText(/Space Saga II would most likely land between 73 and 90/)).toBeInTheDocument();
   const call = fetchMock.mock.calls.find(([input]) => String(input) === "/api/predictions/metacritic")!;
   expect(JSON.parse(String(call[1]!.body))).toMatchObject({
     name: "Space Saga II",
     genres: ["RPG"],
-    platforms: ["PC"],
-    tags: ["Singleplayer"],
+    platforms: [],
+    tags: ["Singleplayer", "Story Rich"],
     esrb_rating: null,
   });
 });
