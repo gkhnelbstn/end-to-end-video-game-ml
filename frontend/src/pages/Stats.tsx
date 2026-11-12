@@ -1,5 +1,5 @@
 import { api } from "../api";
-import { Bars, ErrorNotice, fmt, Stat } from "../components/ui";
+import { Bars, ErrorNotice, Figure, fmt } from "../components/ui";
 import { useAsync, type Async } from "../hooks";
 
 /** Loading skeleton, error with retry, or the content once the data is in. */
@@ -53,55 +53,56 @@ export default function Stats() {
 
   return (
     <>
-      <section className="page-intro">
-        <p className="eyebrow">Statistics</p>
-        <h1>The catalogue in numbers</h1>
-        <p className="lede">Computed live from the database every time you open this page.</p>
-      </section>
+      <header className="page-head">
+        <h1>The catalogue</h1>
+        <p>What's in the database right now, counted when you open this page.</p>
+      </header>
 
       <Load state={summary} height={90}>
         {(s) => (
-          <div className="stats-row big">
-            <Stat label="Games" value={fmt(s.games)} />
-            <Stat
-              label="With a Metacritic score"
+          <div className="figures">
+            <Figure label="games" value={fmt(s.games)} />
+            <Figure
+              label="reviewed by critics"
               value={fmt(s.with_metacritic)}
               hint={s.games ? `${((s.with_metacritic / s.games) * 100).toFixed(1)}% of all games` : undefined}
             />
-            <Stat label="Average Metacritic" value={s.avg_metacritic ?? "–"} />
-            <Stat label="Genres · platforms" value={`${s.genres} · ${s.platforms}`} />
+            <Figure label="average critics' score" value={s.avg_metacritic ?? "–"} />
+            <Figure label="genres · platforms" value={`${s.genres} · ${s.platforms}`} />
           </div>
         )}
       </Load>
 
-      <div className="panel">
+      <section className="chart">
         <h2>Games released per year</h2>
         <Load state={perYear}>
           {(data) => {
-            const rows = data.filter((r) => r.year >= 1980 && r.year <= new Date().getFullYear()).map((r) => ({ key: r.year, count: r.count }));
+            const rows = data
+              .filter((r) => r.year >= 1980 && r.year <= new Date().getFullYear())
+              .map((r) => ({ key: r.year, count: r.count }));
             return <Columns rows={rows} label={String} tick={(y) => y % 5 === 0} />;
           }}
         </Load>
-      </div>
+      </section>
 
-      <div className="grid-2">
-        <div className="panel">
-          <h2>Metacritic scores</h2>
-          <p className="subtle small">How many scored games fall into each 10-point band.</p>
+      <div className="chart-grid">
+        <section className="chart">
+          <h2>How critics score</h2>
+          <p className="chart-note">Reviewed games in each 10-point band, coloured by Metacritic's wording.</p>
           <Load state={scores}>
             {(data) => (
               <Columns
                 rows={data.map((r) => ({ key: r.band, count: r.count }))}
                 label={(b) => (b === 90 ? "90–100" : `${b}–${b + 9}`)}
                 tick={() => true}
-                colour={(b) => (b >= 75 ? "good" : b >= 50 ? "mid" : "bad")}
+                colour={(b) => (b >= 90 ? "acclaim" : b >= 75 ? "favourable" : b >= 50 ? "mixed" : "unfavourable")}
               />
             )}
           </Load>
-        </div>
-        <div className="panel">
-          <h2>Average user rating by genre</h2>
-          <p className="subtle small">RAWG user ratings out of 5; unrated games are left out.</p>
+        </section>
+        <section className="chart">
+          <h2>What players think, by genre</h2>
+          <p className="chart-note">Average RAWG player rating out of 5. Games nobody rated are left out.</p>
           <Load state={ratings}>
             {(data) => (
               <Bars
@@ -114,17 +115,15 @@ export default function Stats() {
               />
             )}
           </Load>
-        </div>
-        <div className="panel">
-          <h2>Top genres</h2>
+        </section>
+        <section className="chart">
+          <h2>Most common genres</h2>
           <Load state={genres}>{(data) => <Bars rows={data.map((r) => ({ label: r.name, value: r.count }))} />}</Load>
-        </div>
-        <div className="panel">
-          <h2>Top platforms</h2>
-          <Load state={platforms}>
-            {(data) => <Bars rows={data.map((r) => ({ label: r.name, value: r.count }))} />}
-          </Load>
-        </div>
+        </section>
+        <section className="chart">
+          <h2>Most common platforms</h2>
+          <Load state={platforms}>{(data) => <Bars rows={data.map((r) => ({ label: r.name, value: r.count }))} />}</Load>
+        </section>
       </div>
     </>
   );

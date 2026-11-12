@@ -2,6 +2,7 @@
 
 import re
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -87,12 +88,26 @@ class Tag(Lookup):
     pass
 
 
+Reception = Literal["acclaim", "favourable", "mixed", "unfavourable"]
+
+
+class Expectation(BaseModel):
+    """The model's estimate, shown as a range and a reception band rather than one number."""
+
+    score: float
+    low: int
+    high: int
+    reception: Reception
+
+
 class Game(GameFields, _OrmModel):
     id: int
     genres: list[Genre] = []
     platforms: list[Platform] = []
     stores: list[Store] = []
     tags: list[Tag] = []
+    # Set on list responses for unscored games the model has enough to go on for.
+    expected: Expectation | None = None
 
 
 class LoginRequest(BaseModel):
@@ -133,6 +148,7 @@ class GameFeatures(BaseModel):
 
 class MetacriticPrediction(BaseModel):
     predicted_metacritic: float
+    expected: Expectation
     model_name: str
     model_version: str
     game_id: int | None = None

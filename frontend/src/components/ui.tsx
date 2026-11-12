@@ -1,39 +1,147 @@
 import { useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 
-import { ApiError, isUnreachable } from "../api";
-import type { Game } from "../types";
+import { api, ApiError, isUnreachable } from "../api";
+import { useAsync } from "../hooks";
+import type { Expectation, Game, Reception } from "../types";
 
 /** The UI is in English, so numbers are too (no "1.330" for 1,330 on a Turkish browser). */
 const numberFormat = new Intl.NumberFormat("en-US");
 export const fmt = (n: number) => numberFormat.format(n);
 
-/** Metacritic's colour bands: 75+ favourable, 50-74 mixed, below 50 unfavourable. */
-export function scoreClass(score: number | null | undefined): string {
-  if (score === null || score === undefined) return "none";
-  if (score >= 75) return "good";
-  if (score >= 50) return "mid";
-  return "bad";
+/** Metacritic's own wording for its score bands. */
+export const RECEPTION_LABEL: Record<Reception, string> = {
+  acclaim: "Universal acclaim",
+  favourable: "Generally favourable",
+  mixed: "Mixed or average",
+  unfavourable: "Generally unfavourable",
+};
+
+export function receptionOf(score: number): Reception {
+  if (score >= 90) return "acclaim";
+  if (score >= 75) return "favourable";
+  if (score >= 50) return "mixed";
+  return "unfavourable";
 }
 
-export function Score({
-  value,
-  size = "md",
-  title,
-}: {
-  value: number | null | undefined;
-  size?: "sm" | "md" | "lg";
-  title?: string;
-}) {
-  const shown = value === null || value === undefined ? "–" : Math.round(value);
+/** A critics' score in the colour of its band. */
+export function CriticScore({ value, size = "md" }: { value: number; size?: "sm" | "md" | "lg" }) {
   return (
-    <span className={`score ${scoreClass(value)} ${size}`} title={title}>
-      {shown}
+    <span className={`critic ${receptionOf(value)} ${size}`} title={`Metacritic ${value}`}>
+      {Math.round(value)}
     </span>
+  );
+}
+
+const BANDS: { from: number; to: number; reception: Reception }[] = [
+  { from: 0, to: 50, reception: "unfavourable" },
+  { from: 50, to: 75, reception: "mixed" },
+  { from: 75, to: 90, reception: "favourable" },
+  { from: 90, to: 100, reception: "acclaim" },
+];
+
+/**
+ * The 0-100 reception strip used everywhere a score appears. A critics' score is a solid
+ * notch; the model's estimate is a hatched range, so the two never read as the same thing.
+ */
+export function ReceptionStrip({
+  actual,
+  expected,
+  scale = false,
+}: {
+  actual?: number | null;
+  expected?: Pick<Expectation, "low" | "high"> | null;
+  scale?: boolean;
+}) {
+  const at = (v: number) => `${Math.min(100, Math.max(0, v))}%`;
+  return (
+    <div className="strip" aria-hidden>
+      <div className="strip-track">
+        {BANDS.map((b) => (
+          <span key={b.reception} className={`strip-band ${b.reception}`} style={{ left: at(b.from), width: `${b.to - b.from}%` }} />
+        ))}
+        {expected && (
+          <span className="strip-range" style={{ left: at(expected.low), width: `${expected.high - expected.low}%` }} />
+        )}
+        {actual != null && <span className={`strip-notch ${receptionOf(actual)}`} style={{ left: at(actual) }} />}
+      </div>
+      {scale && (
+        <div className="strip-scale">
+          {[0, 50, 75, 90, 100].map((v) => (
+            <span key={v} style={{ left: at(v) }}>
+              {v}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One-line version of an estimate for cards and lists. */
+export function ExpectedLine({ expected }: { expected: Expectation }) {
+  return (
+    <span className={`expected-line ${expected.reception}`}>
+      <span className="expected-word">{RECEPTION_LABEL[expected.reception]}</span>
+      <span className="expected-range">
+        likely {expected.low}–{expected.high}
+      </span>
+    </span>
+  );
+}
+
+/** What the estimates are, in plain words, with the measured accuracy behind them. */
+export function HowEstimatesWork({ open = false, tryLink = true }: { open?: boolean; tryLink?: boolean }) {
+  const model = useAsync(api.model, []);
+  const m = model.data?.metrics;
+  return (
+    <details className="how" open={open}>
+      <summary>How estimates work</summary>
+      <p>
+        Estimates come from a model trained on games that already have a Metacritic score. It only looks at what is
+        known before launch: the title, release date, ESRB rating, genres, platforms, stores and tags. Reviews and
+        sales are not part of it.
+      </p>
+      {m?.test_mae !== undefined && (
+        <p>
+          On games it never saw during training, it misses the real score by{" "}
+          <strong>{m.test_mae.toFixed(1)} points</strong> on average
+          {m.baseline_test_mae !== undefined && (
+            <>
+              ; guessing the average score every time would miss by {m.baseline_test_mae.toFixed(1)}
+            </>
+          )}
+          . Every range shown here is the estimate give or take that average miss.
+        </p>
+      )}
+      <p>
+        It is weakest at the extremes: true classics and true flops are rarer than everything in between, so their
+        estimates lean towards the middle.
+      </p>
+      <p className="subtle">
+        {tryLink && (
+          <>
+            <Link to="/estimate">Try it on a game idea of your own</Link>
+            {model.data && " · "}
+          </>
+        )}
+        {model.data && `Model version ${model.data.model_version}`}
+      </p>
+    </details>
   );
 }
 
 export function year(released: string | null): string {
   return released ? released.slice(0, 4) : "TBA";
+}
+
+export function releaseDate(released: string | null, style: "long" | "short" = "long"): string {
+  if (!released) return "Release date not announced";
+  return new Date(released).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: style === "long" ? "long" : "short",
+    day: "numeric",
+  });
 }
 
 export function Cover({ game, className = "cover" }: { game: Pick<Game, "background_image" | "name">; className?: string }) {
@@ -42,20 +150,11 @@ export function Cover({ game, className = "cover" }: { game: Pick<Game, "backgro
   if (!game.background_image || failed) {
     return (
       <div className={`${className} placeholder`} aria-hidden>
-        <span>{initials(game.name)}</span>
+        <span>{game.name}</span>
       </div>
     );
   }
   return <img className={className} src={game.background_image} alt="" loading="lazy" onError={() => setFailed(true)} />;
-}
-
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter((w) => /^[A-Za-z0-9]/.test(w))
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join("");
 }
 
 export function Notice({ kind = "info", children }: { kind?: "info" | "error" | "success"; children: ReactNode }) {
@@ -76,7 +175,7 @@ export function ErrorNotice({ error, onRetry, prefix }: { error: Error; onRetry?
         {error.message}
       </span>
       {onRetry && (
-        <button className="ghost small" onClick={onRetry}>
+        <button className="link-button" onClick={onRetry}>
           Try again
         </button>
       )}
@@ -111,51 +210,12 @@ export function Bars({
   );
 }
 
-export function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: ReactNode }) {
+export function Figure({ label, value, hint }: { label: string; value: ReactNode; hint?: ReactNode }) {
   return (
-    <div className="stat">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
-      {hint && <div className="stat-hint">{hint}</div>}
-    </div>
-  );
-}
-
-/**
- * Where scores sit on the 0-100 Metacritic scale, coloured by its bands.
- * `actual` and `predicted` are drawn as markers; `spread` shades predicted ± spread.
- */
-export function ScoreScale({
-  actual,
-  predicted,
-  spread,
-}: {
-  actual?: number | null;
-  predicted?: number | null;
-  spread?: number | null;
-}) {
-  const at = (v: number) => `${Math.min(100, Math.max(0, v))}%`;
-  return (
-    <div className="scale" aria-hidden>
-      <div className="scale-track">
-        <span className="band bad" style={{ width: "50%" }} />
-        <span className="band mid" style={{ width: "25%" }} />
-        <span className="band good" style={{ width: "25%" }} />
-        {predicted != null && spread != null && (
-          <span
-            className="scale-spread"
-            style={{ left: at(predicted - spread), width: `${Math.min(100, predicted + spread) - Math.max(0, predicted - spread)}%` }}
-          />
-        )}
-        {actual != null && <span className="marker actual" style={{ left: at(actual) }} />}
-        {predicted != null && <span className="marker predicted" style={{ left: at(predicted) }} />}
-      </div>
-      <div className="scale-axis">
-        <span>0</span>
-        <span style={{ left: "50%" }}>50</span>
-        <span style={{ left: "75%" }}>75</span>
-        <span>100</span>
-      </div>
+    <div className="figure">
+      <div className="figure-value">{value}</div>
+      <div className="figure-label">{label}</div>
+      {hint && <div className="figure-hint">{hint}</div>}
     </div>
   );
 }

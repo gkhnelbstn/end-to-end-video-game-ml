@@ -30,11 +30,17 @@ import pandas as pd
 import sklearn
 from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
+from scipy.stats import loguniform, randint, uniform
 from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import Ridge
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.model_selection import KFold, cross_val_score
+from sklearn.metrics import (
+    balanced_accuracy_score,
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+)
+from sklearn.model_selection import KFold, RandomizedSearchCV, cross_val_score
 
 from src.backend.database import SessionLocal
 from src.ml import CHAMPION_ALIAS, EXPERIMENT_NAME, MODEL_NAME, features
@@ -48,21 +54,72 @@ CV_FOLDS = 5
 DEFAULT_MIN_ROWS = 200
 
 
-def candidates() -> dict:
+# Found with `--tune 30` on the full catalogue (7,056 scored games): CV MAE 7.90, test MAE
+# 7.67 against 7.80 for the earlier hand-picked settings. The absolute-error loss fits the
+# MAE we report, and is less pulled around by the few very high and very low scores.
+HGB_PARAMS = {
+    "loss": "absolute_error",
+    "learning_rate": 0.136,
+    "max_iter": 426,
+    "max_leaf_nodes": 40,
+    "min_samples_leaf": 16,
+    "l2_regularization": 8.1,
+    "max_features": 0.3,
+}
+
+# Search space for `--tune`.
+HGB_SEARCH_SPACE = {
+    "loss": ["squared_error", "absolute_error"],
+    "learning_rate": loguniform(0.02, 0.2),
+    "max_iter": randint(150, 800),
+    "max_leaf_nodes": randint(8, 64),
+    "min_samples_leaf": randint(5, 60),
+    "l2_regularization": loguniform(0.01, 10),
+    "max_features": uniform(0.3, 0.7),
+}
+
+# Metacritic's wording bands: <50 unfavourable, 50-74 mixed, 75-89 favourable, 90+ acclaim.
+BAND_EDGES = [50, 75, 90]
+BAND_NAMES = ["unfavourable", "mixed", "favourable", "acclaim"]
+
+
+def hgb_pipeline(params: dict):
+    return features.build_pipeline(
+        HistGradientBoostingRegressor(random_state=SEED, early_stopping=False, **params),
+        dense=True,
+    )
+
+
+def candidates(hgb_params: dict | None = None) -> dict:
     """Name -> (pipeline, hyper-parameters to log)."""
     ridge_alpha = 3.0
-    hgb = {"learning_rate": 0.05, "max_iter": 300, "max_leaf_nodes": 31, "l2_regularization": 1.0}
+    hgb = hgb_params or HGB_PARAMS
     return {
         "baseline_mean": (features.build_pipeline(DummyRegressor(strategy="mean")), {}),
         "ridge": (features.build_pipeline(Ridge(alpha=ridge_alpha)), {"alpha": ridge_alpha}),
-        "hist_gradient_boosting": (
-            features.build_pipeline(
-                HistGradientBoostingRegressor(random_state=SEED, early_stopping=False, **hgb),
-                dense=True,
-            ),
-            hgb,
-        ),
+        "hist_gradient_boosting": (hgb_pipeline(hgb), hgb),
     }
+
+
+def search_hgb_params(x_train, y_train, n_iter: int) -> tuple[dict, float]:
+    """Randomised search over HGB settings on the training part only (never the test set).
+
+    The feature steps are fitted once up front, so the search only refits the model.
+    """
+    prep = hgb_pipeline({})
+    prep.steps.pop()  # everything but the model
+    matrix = prep.fit_transform(x_train)
+    search = RandomizedSearchCV(
+        HistGradientBoostingRegressor(random_state=SEED, early_stopping=False),
+        HGB_SEARCH_SPACE,
+        n_iter=n_iter,
+        cv=KFold(n_splits=CV_FOLDS, shuffle=True, random_state=SEED),
+        scoring="neg_mean_absolute_error",
+        random_state=SEED,
+        n_jobs=-1,
+    ).fit(matrix, y_train)
+    params = {k: (v.item() if hasattr(v, "item") else v) for k, v in search.best_params_.items()}
+    return params, float(-search.best_score_)
 
 
 def is_test_game(game_ids: pd.Series) -> np.ndarray:
@@ -81,7 +138,30 @@ def regression_metrics(y_true, y_pred, prefix: str) -> dict[str, float]:
         f"{prefix}_mae": float(mean_absolute_error(y_true, y_pred)),
         f"{prefix}_rmse": float(math.sqrt(mean_squared_error(y_true, y_pred))),
         f"{prefix}_r2": float(r2_score(y_true, y_pred)),
+        **band_metrics(y_true, y_pred, prefix),
     }
+
+
+def band_metrics(y_true, y_pred, prefix: str) -> dict[str, float]:
+    """How the model does per reception band, not just on average.
+
+    Scores bunch up between 60 and 85, so the overall MAE mostly measures the middle.
+    `band_accuracy_balanced` weighs each band equally (did the estimate land in the right
+    band?), and `mae_<band>` shows how far off it is for games that really are in it.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    true_band = np.digitize(y_true, BAND_EDGES)
+    pred_band = np.digitize(np.asarray(y_pred, dtype=float), BAND_EDGES)
+    metrics = {
+        f"{prefix}_band_accuracy_balanced": float(balanced_accuracy_score(true_band, pred_band))
+    }
+    for index, name in enumerate(BAND_NAMES):
+        in_band = true_band == index
+        if in_band.any():
+            metrics[f"{prefix}_mae_{name}"] = float(
+                mean_absolute_error(y_true[in_band], np.asarray(y_pred)[in_band])
+            )
+    return metrics
 
 
 def group_importance(model, x_test: pd.DataFrame, y_test, repeats: int = 5) -> dict[str, float]:
@@ -117,8 +197,12 @@ def champion_mae(client: MlflowClient, x_test, y_test) -> tuple[float | None, st
     return mae, str(version.version)
 
 
-def train(frame: pd.DataFrame, min_rows: int = DEFAULT_MIN_ROWS) -> dict:
-    """Train on a dataset as returned by `data.load_dataset`. Returns a summary."""
+def train(frame: pd.DataFrame, min_rows: int = DEFAULT_MIN_ROWS, tune: int = 0) -> dict:
+    """Train on a dataset as returned by `data.load_dataset`. Returns a summary.
+
+    With `tune` > 0, gradient boosting uses the best of that many random settings
+    (cross-validated on the training part) instead of `HGB_PARAMS`.
+    """
     if len(frame) < min_rows:
         message = f"only {len(frame)} games have a Metacritic score; need {min_rows}"
         logger.warning("Skipping training: %s", message)
@@ -155,8 +239,17 @@ def train(frame: pd.DataFrame, min_rows: int = DEFAULT_MIN_ROWS) -> dict:
             context="training",
         )
 
+        hgb_params = None
+        if tune > 0:
+            with mlflow.start_run(run_name="hist_gradient_boosting_search", nested=True):
+                hgb_params, search_mae = search_hgb_params(x_train, y_train, tune)
+                mlflow.log_params({"model": "hist_gradient_boosting_search", "n_iter": tune})
+                mlflow.log_dict(hgb_params, "best_params.json")
+                mlflow.log_metric("cv_mae", search_mae)
+            logger.info("Search picked %s (CV MAE %.3f)", hgb_params, search_mae)
+
         results = {}
-        for name, (pipeline, params) in candidates().items():
+        for name, (pipeline, params) in candidates(hgb_params).items():
             with mlflow.start_run(run_name=name, nested=True):
                 mlflow.log_params({"model": name, **params})
                 scores = -cross_val_score(
@@ -269,10 +362,17 @@ def main(argv: list[str] | None = None) -> dict:
         default=int(os.environ.get("ML_MIN_TRAINING_ROWS", DEFAULT_MIN_ROWS)),
         help="skip training when fewer games have a Metacritic score",
     )
+    parser.add_argument(
+        "--tune",
+        type=int,
+        default=0,
+        metavar="N",
+        help="search N random gradient-boosting settings instead of using the stored ones",
+    )
     args = parser.parse_args(argv)
     with SessionLocal() as db:
         frame = load_dataset(db)
-    return train(frame, min_rows=args.min_rows)
+    return train(frame, min_rows=args.min_rows, tune=args.tune)
 
 
 if __name__ == "__main__":
