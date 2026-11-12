@@ -1,6 +1,6 @@
 [project]
 name = "game-insight"
-version = "0.2.0"
+version = "1.0.0"
 description = "Collects video game data (Steam, IGDB, RAWG snapshot) into PostgreSQL, predicts Metacritic scores with an MLflow-tracked model, and serves both through FastAPI and a React dashboard."
 readme = "README.md"
 license = { file = "LICENSE" }
