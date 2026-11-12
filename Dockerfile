@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
-# One Dockerfile, two images:
+# One Dockerfile, two images (the React dashboard has its own: frontend/Dockerfile):
 #   --target app       FastAPI backend, Celery worker, Flower, seed/backfill scripts
-#   --target frontend  Streamlit dashboard
+#   --target mlflow    MLflow tracking server and model registry
 
 ARG PYTHON_VERSION=3.12
 
@@ -17,10 +17,6 @@ COPY pyproject.toml uv.lock ./
 FROM builder AS app-deps
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-default-groups
-
-FROM builder AS frontend-deps
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --only-group frontend
 
 FROM builder AS mlflow-deps
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -42,13 +38,6 @@ COPY --from=app-deps /app/.venv /app/.venv
 COPY src ./src
 EXPOSE 8000
 CMD ["uvicorn", "src.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-# ---- frontend: Streamlit dashboard ----
-FROM runtime AS frontend
-COPY --from=frontend-deps /app/.venv /app/.venv
-COPY src/frontend ./src/frontend
-EXPOSE 8501
-CMD ["streamlit", "run", "src/frontend/app.py", "--server.address=0.0.0.0", "--server.headless=true", "--browser.gatherUsageStats=false"]
 
 # ---- mlflow: tracking server + model registry (command set in compose.yaml) ----
 FROM runtime AS mlflow

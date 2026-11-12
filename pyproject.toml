@@ -1,7 +1,7 @@
 [project]
 name = "game-insight"
 version = "0.2.0"
-description = "Collects video game data from the RAWG API with Celery, stores it in PostgreSQL, and serves it through a FastAPI backend and a Streamlit dashboard."
+description = "Collects video game data (Steam, IGDB, RAWG snapshot) into PostgreSQL, predicts Metacritic scores with an MLflow-tracked model, and serves both through FastAPI and a React dashboard."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.12"
@@ -32,12 +32,6 @@ dependencies = [
 ]
 
 [dependency-groups]
-# Streamlit dashboard (its own container image).
-frontend = [
-    "httpx>=0.28",
-    "pandas>=2.3",
-    "streamlit>=1.50",
-]
 # MLflow tracking server (its own container image).
 mlflow-server = [
     "mlflow>=3.4",
@@ -60,7 +54,7 @@ dev = [
 [tool.uv]
 # This is an application, not a library: nothing to build or publish.
 package = false
-default-groups = ["dev", "frontend", "analysis"]
+default-groups = ["dev", "analysis"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

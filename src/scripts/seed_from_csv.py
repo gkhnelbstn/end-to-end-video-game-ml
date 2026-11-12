@@ -60,6 +60,19 @@ def ensure_list(value):
         return []
 
 
+def parse_esrb(value) -> str | None:
+    """RAWG's esrb_rating cell, e.g. "{'id': 3, 'name': 'Teen', ...}", as just its name."""
+    if not value:
+        return None
+    try:
+        parsed = ast.literal_eval(value)
+    except Exception:
+        return None
+    if isinstance(parsed, dict) and parsed.get("name"):
+        return str(parsed["name"])
+    return None
+
+
 def to_game_create(row: dict) -> schemas.GameCreate | None:
     try:
         game_id = parse_int(row.get("id"))
@@ -177,6 +190,7 @@ def to_game_create(row: dict) -> schemas.GameCreate | None:
             ratings_count=ratings_count,
             metacritic=metacritic,
             playtime=playtime,
+            esrb_rating=parse_esrb(row.get("esrb_rating")),
             background_image=background_image,
             clip=clip,
             genres=genres,
@@ -213,11 +227,14 @@ def seed_csv_file(db, csv_path: Path) -> tuple[int, int]:
                     skipped += 1
                     continue
                 if existing is not None:
-                    # Already seeded: backfill media fields the row is missing.
+                    # Already seeded: backfill fields added since (media, ESRB rating).
                     bg = None if existing.background_image else game_create.background_image
                     cl = None if existing.clip else game_create.clip
                     if bg or cl:
                         crud.update_game_media(db, existing, bg, cl)
+                    if existing.esrb_rating is None and game_create.esrb_rating:
+                        existing.esrb_rating = game_create.esrb_rating
+                        db.commit()
                     skipped += 1
                     continue
 

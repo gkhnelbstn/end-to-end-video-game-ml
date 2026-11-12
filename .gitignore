@@ -98,3 +98,8 @@ target/
 # MLflow (local runs)
 mlruns/
 mlartifacts/
+
+# Frontend
+node_modules/
+frontend/dist/
+*.tsbuildinfo

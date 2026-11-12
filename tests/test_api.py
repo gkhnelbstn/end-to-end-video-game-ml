@@ -73,6 +73,15 @@ def test_add_and_list_favorites(client):
     assert names(client.get("/api/users/1/favorites")) == ["Game A"]
 
 
+def test_remove_favorite(client):
+    client.post("/api/users/1/favorites/1", headers=AUTH)
+    assert client.delete("/api/users/1/favorites/1", headers=AUTH).status_code == 200
+    assert names(client.get("/api/users/1/favorites")) == []
+    # Removing a game that is not a favourite is a no-op.
+    assert client.delete("/api/users/1/favorites/1", headers=AUTH).status_code == 200
+    assert client.delete("/api/users/2/favorites/1", headers=AUTH).status_code == 403
+
+
 def test_favorites_require_matching_user(client):
     assert client.post("/api/users/1/favorites/1").status_code == 401
     assert client.post("/api/users/2/favorites/1", headers=AUTH).status_code == 403
@@ -98,6 +107,43 @@ def test_avg_rating_by_genre(client):
         {"genre": "Action", "avg_rating": (4.5 + 4.8) / 2},
         {"genre": "RPG", "avg_rating": 3.5},
     ]
+
+
+def test_summary_scored_filter_and_metacritic_bands(client, db):
+    for game_id, score, esrb in [(1, 100, "Teen"), (2, 75, "Mature"), (3, None, "Teen")]:
+        game = db.get(models.Game, game_id)
+        game.metacritic, game.esrb_rating = score, esrb
+    db.commit()
+
+    summary = client.get("/api/stats/summary").json()
+    assert summary == {
+        "games": 3,
+        "with_metacritic": 2,
+        "avg_metacritic": 87.5,
+        "genres": 2,
+        "platforms": 2,
+        "first_year": 2022,
+        "last_year": 2023,
+    }
+    assert sorted(names(client.get("/api/games?scored=true"))) == ["Game A", "Game B"]
+    # 100 joins the top band instead of getting one of its own.
+    assert client.get("/api/stats/metacritic-distribution").json() == [
+        {"band": 70, "count": 1},
+        {"band": 90, "count": 1},
+    ]
+    assert client.get("/api/stats/esrb-ratings").json() == [
+        {"name": "Teen", "count": 2},
+        {"name": "Mature", "count": 1},
+    ]
+
+
+def test_avg_rating_ignores_unrated_games(client, db):
+    # RAWG uses 0 for "no rating yet"; it must not count as a zero-star rating.
+    game = db.query(models.Game).filter_by(name="Game B").one()
+    game.rating = 0
+    db.commit()
+    data = client.get("/api/stats/avg-rating-by-genre").json()
+    assert [row["genre"] for row in data] == ["Action"]
 
 
 def test_rating_distribution_and_top_lists(client):

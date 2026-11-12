@@ -49,6 +49,8 @@ class Game(Base):
     # IGDB's aggregated critic rating (0-100). Not Metacritic, so it is kept separate.
     critic_rating: Mapped[float | None] = mapped_column(Float)
     playtime: Mapped[int | None]
+    # ESRB age rating name ("Everyone", "Teen", "Mature", ...). Only the RAWG data has it.
+    esrb_rating: Mapped[str | None]
     background_image: Mapped[str | None]
     clip: Mapped[str | None]
 

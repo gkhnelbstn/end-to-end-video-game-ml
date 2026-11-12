@@ -65,6 +65,25 @@ jobs:
       - run: uv sync --locked
       - run: uv run pytest -v
 
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: frontend
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
   docker:
     runs-on: ubuntu-latest
     steps:
@@ -94,7 +113,9 @@ jobs:
           curl --fail --silent http://localhost:8000/health
           curl --fail --silent "http://localhost:8000/api/games?limit=1"
           curl --fail --silent http://localhost:8000/api/tasks/workers
-          curl --fail --silent --output /dev/null http://localhost:8501/_stcore/health
+          curl --fail --silent http://localhost:8080/healthz
+          curl --fail --silent --output /dev/null http://localhost:8080/games/1
+          curl --fail --silent "http://localhost:8080/api/games?limit=1"
           curl --fail --silent --output /dev/null http://localhost:5555/
           curl --fail --silent http://localhost:5000/health
           curl --fail --silent http://localhost:8000/api/ml/model
