@@ -25,6 +25,9 @@ x-app: &app
     SECRET_KEY: ${SECRET_KEY:-dev-only-secret-change-me}
     ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
     ADMIN_PASSWORD: ${ADMIN_PASSWORD:-adminpass}
+    # Dashboard sign-in: Rauthy's issuer as the browser sees it (through the frontend).
+    OIDC_ISSUER: http://localhost:${FRONTEND_PORT:-8080}/auth/v1/
+    OIDC_JWKS_URL: http://rauthy:8080/auth/v1/oidc/certs
     USE_ALEMBIC: "1"
   restart: unless-stopped
 
@@ -171,7 +174,75 @@ services:
       redis:
         condition: service_healthy
 
-  # React dashboard (frontend/). nginx serves the build and proxies /api to the backend.
+  # One-shot: writes Rauthy's bootstrap files with the dashboard's real port filled in
+  # (redirect URIs must match exactly). Rauthy reads them only when its database is empty.
+  rauthy-bootstrap:
+    image: busybox:1.37
+    command:
+      - sh
+      - -c
+      - sed "s/__FRONTEND_PORT__/$${FRONTEND_PORT}/g" /src/clients.json > /out/clients.json
+    environment:
+      FRONTEND_PORT: ${FRONTEND_PORT:-8080}
+    volumes:
+      - ./deploy/rauthy/clients.json:/src/clients.json:ro
+      - rauthy_bootstrap:/out
+    restart: "no"
+
+  # Rauthy: OpenID Connect provider for dashboard sign-in and registration. The browser
+  # reaches it through nginx under /auth/, so the issuer is
+  # http://localhost:${FRONTEND_PORT}/auth/v1 and everything stays on one origin.
+  # Admin UI: http://localhost:${FRONTEND_PORT}/auth/v1/admin
+  rauthy:
+    image: ghcr.io/sebadob/rauthy:0.37.2
+    environment:
+      LISTEN_SCHEME: http
+      LISTEN_PORT_HTTP: "8080"
+      PUB_URL: localhost:${FRONTEND_PORT:-8080}
+      # Rauthy assumes HTTPS in proxy mode, so it runs as if reached directly; nginx only
+      # forwards the path. Its rate limits then see nginx's address, acceptable locally.
+      PROXY_MODE: "false"
+      # Plain-HTTP cookies: fine on localhost, never behind a public URL.
+      COOKIE_MODE: danger-insecure
+      RP_ID: localhost
+      RP_ORIGIN: http://localhost:${FRONTEND_PORT:-8080}
+      OPEN_USER_REG: "true"
+      ADMIN_FORCE_MFA: "false"
+      HTTP_WORKERS: "1"
+      HQL_NODE_ID: "1"
+      HQL_NODES: "1 localhost:8100 localhost:8200"
+      HQL_DATA_DIR: /app/data
+      HQL_SECRET_RAFT: ${RAUTHY_SECRET_RAFT:-dev-only-raft-secret-change-me}
+      HQL_SECRET_API: ${RAUTHY_SECRET_API:-dev-only-api-secret-change-me}
+      ENC_KEYS: ${RAUTHY_ENC_KEYS:-devonly/e6GPTA+a9CbMXmHNlnUElTUxXB2rNZWim5tjYzg8XPw=}
+      ENC_KEY_ACTIVE: ${RAUTHY_ENC_KEY_ACTIVE:-devonly}
+      BOOTSTRAP_DIR: /app/bootstrap
+      BOOTSTRAP_ADMIN_EMAIL: ${RAUTHY_ADMIN_EMAIL:-admin@localhost}
+      BOOTSTRAP_ADMIN_PASSWORD_PLAIN: ${RAUTHY_ADMIN_PASSWORD:-DevOnlyAdminPassword1!}
+      # Registration and password-reset mail goes to the mail catcher below.
+      SMTP_URL: mailcrab
+      SMTP_PORT: "1025"
+      SMTP_TLS_MODE: danger-insecure
+      SMTP_FROM: Game Insight <auth@localhost>
+    volumes:
+      - rauthy_data:/app/data
+      - rauthy_bootstrap:/app/bootstrap:ro
+    depends_on:
+      rauthy-bootstrap:
+        condition: service_completed_successfully
+      mailcrab:
+        condition: service_started
+    restart: unless-stopped
+
+  # Catches Rauthy's e-mails (registration, password reset). Inbox: http://localhost:8025
+  mailcrab:
+    image: marlonb/mailcrab:v1.6.2
+    ports:
+      - "127.0.0.1:${MAIL_UI_PORT:-8025}:1080"
+    restart: unless-stopped
+
+  # React dashboard (frontend/). nginx serves the build, proxies /api to the backend and
+  # /auth to Rauthy.
   frontend:
     image: game-insight-frontend
     build:
@@ -181,6 +252,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      rauthy:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
       interval: 10s
@@ -204,3 +277,5 @@ services:
 volumes:
   postgres_data:
   mlflow_artifacts:
+  rauthy_data:
+  rauthy_bootstrap:

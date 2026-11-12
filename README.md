@@ -34,13 +34,15 @@ promotes it to `champion`; from then on the API serves predictions.
 | Dashboard (React) | http://localhost:8080 |
 | API docs (Swagger UI) | http://localhost:8000/docs |
 | Admin panel (SQLAdmin), `admin` / `adminpass` | http://localhost:8000/admin |
+| Sign-in admin (Rauthy), `admin@localhost` / `DevOnlyAdminPassword1!` | http://localhost:8080/auth/v1/admin |
+| Mail catcher (registration e-mails) | http://localhost:8025 |
 | Scheduled-task manager | http://localhost:8000/task-management |
 | Flower (Celery monitoring) | http://localhost:5555 |
 | MLflow (runs, model registry) | http://localhost:5000 |
 
 To change ports, credentials or secrets, copy `.env.example` to `.env` and edit it.
-The defaults are for local development only: change `SECRET_KEY`, `ADMIN_PASSWORD` and
-the database password before exposing the stack anywhere.
+The defaults are for local development only: change `SECRET_KEY`, `ADMIN_PASSWORD`, the
+`RAUTHY_*` secrets and the database password before exposing the stack anywhere.
 
 The repository is large to clone (about 500 MB of CSV exports under `data/raw`).
 
@@ -93,6 +95,8 @@ flowchart LR
     M -->|backend store| DB
     B -->|SQLAlchemy| DB
     F[React dashboard<br/>nginx] -->|/api proxy| B
+    F -->|/auth proxy| A[Rauthy<br/>sign-in]
+    B -->|signing keys| A
     FL[Flower] --> R
 ```
 
@@ -107,7 +111,10 @@ flowchart LR
 | `backend` | FastAPI app: REST API, predictions, SQLAdmin panel, and an in-process APScheduler that enqueues the periodic Celery tasks. |
 | `worker` | Celery worker: ingestion (Steam, IGDB, RAWG) and scheduled retraining. |
 | `flower` | Celery monitoring UI. |
-| `frontend` | React dashboard (`frontend/`), served by nginx, which also proxies `/api` to the backend. |
+| `rauthy` | [Rauthy](https://github.com/sebadob/rauthy), the OpenID Connect provider for dashboard accounts: sign-in, registration, password reset, passkeys. Its embedded database lives in the `rauthy_data` volume. |
+| `rauthy-bootstrap` | One-shot: fills the dashboard's port into Rauthy's client definition (`deploy/rauthy/clients.json`). |
+| `mailcrab` | Catches the e-mails Rauthy sends (registration, password reset); nothing leaves the machine. |
+| `frontend` | React dashboard (`frontend/`), served by nginx, which also proxies `/api` to the backend and `/auth` to Rauthy. |
 | `backfill` | Opt-in (`--profile backfill`): queues ingestion for a range of years. |
 
 `backend`, `worker`, `flower`, `migrate`, `seed` and `train` share one image
@@ -135,7 +142,8 @@ Defined in `src/backend/models.py`, migrated with Alembic (`src/backend/alembic`
 
 - `games` with many-to-many links to `genres`, `platforms`, `stores` and `tags`; RAWG
   rows keep RAWG's ids, `steam_appid` and `igdb_id` link rows to the other sources
-- `users` and their `user_favorite_games`
+- `users` and their `user_favorite_games`; the accounts themselves live in Rauthy, and a
+  `users` row is keyed by the account's id (`sub`)
 - `admin_users` for the admin panel
 
 A test (`tests/test_migrations.py`) fails CI if the migrations and the models drift apart.
@@ -151,16 +159,35 @@ A test (`tests/test_migrations.py`) fails CI if the migrations and the models dr
 | `GET /api/games/{id}/predicted-metacritic` | The champion model's prediction for a stored game, next to its actual score, with the same `expected` range. |
 | `POST /api/predictions/metacritic` | Prediction for a hypothetical game; every field is optional: `{"name": "Starfall III", "release_year": 2025, "release_month": 11, "esrb_rating": "Mature", "genres": ["RPG"], "platforms": ["PC"], "stores": ["Steam"], "tags": ["Singleplayer"]}`. |
 | `GET /api/ml/model`, `POST /api/ml/reload` | Which model version is served and its metrics; re-check the `champion` alias now. |
-| `POST /api/users`, `POST /api/auth/login` | Register and log in (dashboard accounts). |
-| `GET /api/users/{id}/favorites`, `POST`/`DELETE /api/users/{id}/favorites/{game_id}` | List, add and remove favorite games. |
+| `GET /api/me` | The signed-in user. Needs `Authorization: Bearer <access token from Rauthy>`. |
+| `GET /api/me/favorites`, `PUT`/`DELETE /api/me/favorites/{game_id}` | List, add and remove the signed-in user's favourite games. |
 | `/api/tasks/...` | Inspect workers, run Celery tasks, manage scheduled tasks. |
 
 Full, interactive reference: http://localhost:8000/docs.
 
-**Limitations to know about.** Dashboard login is demo-grade: after login the dashboard
-identifies the user with an `X-User-Id` header, and there are no tokens or sessions. The
-`/api/tasks/...` endpoints are unauthenticated. This is fine on a laptop and not suitable
-for a public deployment as is.
+### Accounts and sign-in
+
+Dashboard accounts are handled by Rauthy, a small OpenID Connect provider, so the app
+keeps no passwords. The dashboard signs in with the authorization code flow and PKCE
+(`oidc-client-ts`). *Create account* opens Rauthy's registration page, which e-mails a
+link to set a password (open it in the mail catcher at http://localhost:8025). Your name
+in the header links to Rauthy's account page for password changes and passkeys.
+
+The backend checks each access token's signature against Rauthy's published keys, plus
+its issuer, audience (`game-insight`) and expiry, and creates the `users` row on the
+account's first request. A user from before Rauthy is linked to the account with the same
+verified e-mail, so their favourites carry over.
+
+The browser reaches Rauthy through the dashboard's nginx under `/auth/`, so the issuer is
+`http://localhost:<FRONTEND_PORT>/auth/v1/`. Rauthy reads `deploy/rauthy/clients.json` and
+the admin account only when its database is empty: after changing `FRONTEND_PORT`, remove
+the `rauthy_data` volume so the redirect addresses are written again. With `npm run dev`,
+set `VITE_OIDC_AUTHORITY=http://localhost:8080/auth/v1/` to sign in against the compose
+stack.
+
+**Limitations to know about.** Rauthy runs over plain HTTP with insecure cookies, which
+only suits localhost. The `/api/tasks/...` endpoints are unauthenticated. This is fine on
+a laptop and not suitable for a public deployment as is.
 
 ## Machine learning
 
@@ -390,7 +417,7 @@ setting.
   signals such as wishlists. Developer and publisher history from Wikidata was tried and
   did not help (see Machine learning).
 - Per-game uncertainty (quantile models) instead of one range width for every game.
-- Real authentication (tokens) for the dashboard and the task endpoints.
+- Authentication for the task endpoints.
 - Persistent schedules for the task manager.
 
 ## License

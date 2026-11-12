@@ -187,6 +187,53 @@ test("the estimate page sends every trait to the API", async () => {
 });
 
 test("api errors carry FastAPI's detail message", async () => {
-  mockApi({ "/api/auth/login": () => json({ detail: "Invalid credentials" }, 401) });
-  await expect(api.login("a@b.c", "x")).rejects.toEqual(new ApiError(401, "Invalid credentials"));
+  mockApi({ "/api/me/favorites": () => json({ detail: "Not signed in" }, 401) });
+  await expect(api.favorites()).rejects.toEqual(new ApiError(401, "Not signed in"));
+});
+
+describe("signed in through Rauthy", () => {
+  // oidc-client-ts keeps the session in sessionStorage under this key.
+  const key = `oidc.user:${window.location.origin}/auth/v1/:game-insight`;
+  beforeEach(() =>
+    sessionStorage.setItem(
+      key,
+      JSON.stringify({
+        access_token: "access-token-1",
+        id_token: "id-token-1",
+        token_type: "Bearer",
+        scope: "openid email profile",
+        profile: { sub: "account-1", email: "ada@example.com", iss: "", aud: "", exp: 0, iat: 0 },
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+      }),
+    ),
+  );
+  afterEach(() => sessionStorage.clear());
+
+  test("saving a game sends the access token", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const path = String(input).split("?")[0];
+      if (path === "/api/games/3498") return json(GAME);
+      if (path === "/api/me/favorites") return json([]);
+      if (path === "/api/me/favorites/3498") return new Response(null, { status: 204 });
+      return json({ detail: "Not Found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderAt("/games/3498");
+    expect(await screen.findByText("ada@example.com")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Save to favourites" }));
+    expect(await screen.findByRole("button", { name: "Saved to favourites" })).toBeInTheDocument();
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT")!;
+    expect(String(put[0])).toBe("/api/me/favorites/3498");
+    expect(new Headers(put[1]!.headers).get("Authorization")).toBe("Bearer access-token-1");
+  });
+});
+
+test("signed out, saving and favourites point to sign-in and registration", async () => {
+  mockApi({ "/api/games/3498": () => json(GAME) });
+  renderAt("/games/3498");
+  expect(await screen.findByRole("button", { name: "Sign in to save" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Create account" })).toHaveAttribute(
+    "href",
+    expect.stringContaining("/auth/v1/users/register?redirect_uri="),
+  );
 });

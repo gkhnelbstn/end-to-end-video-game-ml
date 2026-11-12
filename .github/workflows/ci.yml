@@ -101,7 +101,7 @@ jobs:
         # on the long-running services only and run the one-shots separately.
         run: |
           docker compose build
-          docker compose up --detach --wait --wait-timeout 300 backend worker flower frontend mlflow
+          docker compose up --detach --wait --wait-timeout 300 backend worker flower frontend mlflow rauthy mailcrab
       - name: Seed a sample and train the model
         # games_2000-2004 (~5,600 games, ~890 with a Metacritic score) keep CI quick.
         run: |
@@ -116,6 +116,11 @@ jobs:
           curl --fail --silent http://localhost:8080/healthz
           curl --fail --silent --output /dev/null http://localhost:8080/games/1
           curl --fail --silent "http://localhost:8080/api/games?limit=1"
+          # Rauthy behind nginx: the issuer must be the public URL the backend checks.
+          curl --fail --silent --retry 15 --retry-delay 2 --retry-all-errors \
+            http://localhost:8080/auth/v1/.well-known/openid-configuration \
+            | grep -q '"issuer":"http://localhost:8080/auth/v1/"'
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:8080/api/me)" = 401
           curl --fail --silent --output /dev/null http://localhost:5555/
           curl --fail --silent http://localhost:5000/health
           curl --fail --silent http://localhost:8000/api/ml/model

@@ -1,57 +1,101 @@
+import { UserManager, WebStorageStateStore, type User as OidcUser } from "oidc-client-ts";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { api, ApiError } from "./api";
-import type { User } from "./types";
+import { setAccessToken } from "./api";
 
-const STORAGE_KEY = "game-insight-user";
+/**
+ * Sign-in goes through Rauthy, the OpenID Connect provider in the compose stack
+ * (authorization code + PKCE). nginx serves it under /auth/ on the dashboard's own
+ * origin. With `npm run dev`, point VITE_OIDC_AUTHORITY at the compose frontend, e.g.
+ * http://localhost:8080/auth/v1/.
+ */
+const authority = import.meta.env.VITE_OIDC_AUTHORITY ?? `${window.location.origin}/auth/v1/`;
+const CLIENT_ID = "game-insight";
+
+/** Where the account pages live: registration, password reset, profile. */
+export const accountUrl = new URL("account", authority).toString();
+export const registerUrl = `${new URL("users/register", authority)}?redirect_uri=${encodeURIComponent(
+  `${window.location.origin}/`,
+)}`;
+
+let manager: UserManager | undefined;
+
+export function userManager(): UserManager {
+  manager ??= new UserManager({
+    authority,
+    client_id: CLIENT_ID,
+    redirect_uri: `${window.location.origin}/callback`,
+    post_logout_redirect_uri: `${window.location.origin}/`,
+    scope: "openid email profile",
+    // Tokens stay in this tab's session storage, and are renewed with the refresh token.
+    userStore: new WebStorageStateStore({ store: window.sessionStorage }),
+    automaticSilentRenew: true,
+  });
+  return manager;
+}
+
+export interface Account {
+  email?: string;
+  name?: string;
+}
 
 interface AuthState {
-  user: User | null;
-  signIn: (user: User) => void;
+  account: Account | null;
+  /** False until the stored session has been read; avoids flashing "Sign in". */
+  ready: boolean;
+  signIn: (returnTo?: string) => void;
   signOut: () => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
 
-function stored(): User | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as User) : null;
-  } catch {
-    return null;
-  }
+function toAccount(user: OidcUser | null): Account | null {
+  if (!user || user.expired) return null;
+  const { email, name, preferred_username } = user.profile;
+  return { email, name: name ?? preferred_username };
 }
 
-/**
- * Demo-grade sign-in, matching the backend: after login the API is told who the user
- * is through the X-User-Id header. There are no tokens.
- */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(stored);
-  const signIn = useCallback((next: User) => {
-    setUser(next);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      /* storage unavailable: stay signed in for this tab only */
-    }
+  const [account, setAccount] = useState<Account | null>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const um = userManager();
+    const apply = (user: OidcUser | null) => {
+      setAccessToken(user && !user.expired ? user.access_token : undefined);
+      setAccount(toAccount(user));
+    };
+    um.getUser()
+      .then(apply)
+      .catch(() => apply(null))
+      .finally(() => setReady(true));
+    const clear = () => apply(null);
+    um.events.addUserLoaded(apply);
+    um.events.addUserUnloaded(clear);
+    um.events.addSilentRenewError(clear);
+    um.events.addAccessTokenExpired(clear);
+    return () => {
+      um.events.removeUserLoaded(apply);
+      um.events.removeUserUnloaded(clear);
+      um.events.removeSilentRenewError(clear);
+      um.events.removeAccessTokenExpired(clear);
+    };
+  }, []);
+
+  const signIn = useCallback((returnTo?: string) => {
+    void userManager().signinRedirect({
+      state: { returnTo: returnTo ?? window.location.pathname + window.location.search },
+    });
   }, []);
   const signOut = useCallback(() => {
-    setUser(null);
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* ignore */
-    }
+    const um = userManager();
+    void um.getUser().then((user) =>
+      // Ends the Rauthy session too, then comes back to the home page.
+      user ? um.signoutRedirect({ id_token_hint: user.id_token }) : um.removeUser(),
+    );
   }, []);
-  // A remembered user can outlive the database (e.g. after `docker compose down -v`).
-  useEffect(() => {
-    if (!user) return;
-    api.favorites(user.id).catch((error) => {
-      if (error instanceof ApiError && error.status === 404) signOut();
-    });
-  }, [user, signOut]);
-  const value = useMemo(() => ({ user, signIn, signOut }), [user, signIn, signOut]);
+
+  const value = useMemo(() => ({ account, ready, signIn, signOut }), [account, ready, signIn, signOut]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

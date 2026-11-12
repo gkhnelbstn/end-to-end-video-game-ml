@@ -1,0 +1,28 @@
+[
+  {
+    "id": "game-insight",
+    "name": "Game Insight",
+    "enabled": true,
+    "client_uri": "http://localhost:__FRONTEND_PORT__",
+    "redirect_uris": [
+      "http://localhost:__FRONTEND_PORT__/callback",
+      "http://localhost:5173/callback"
+    ],
+    "post_logout_redirect_uris": [
+      "http://localhost:__FRONTEND_PORT__/",
+      "http://localhost:5173/"
+    ],
+    "allowed_origins": [
+      "http://localhost:__FRONTEND_PORT__",
+      "http://localhost:5173"
+    ],
+    "flows_enabled": ["authorization_code", "refresh_token"],
+    "access_token_alg": "RS256",
+    "id_token_alg": "RS256",
+    "auth_code_lifetime": 60,
+    "access_token_lifetime": 1800,
+    "scopes": ["openid", "email", "profile"],
+    "default_scopes": ["openid", "email", "profile"],
+    "force_mfa": false
+  }
+]

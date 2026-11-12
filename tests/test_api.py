@@ -1,6 +1,8 @@
+from cryptography.hazmat.primitives.asymmetric import rsa
+
 from src.backend import crud, models, security
 
-AUTH = {"X-User-Id": "1"}
+from .conftest import bearer, make_token
 
 
 def names(response) -> list[str]:
@@ -64,29 +66,62 @@ def test_genres_and_platforms(client):
 
 
 def test_add_and_list_favorites(client):
-    response = client.post("/api/users/1/favorites/1", headers=AUTH)
-    assert response.status_code == 200
-    assert [g["name"] for g in response.json()["favorite_games"]] == ["Game A"]
-
-    # Adding the same game twice is a no-op, and the legacy path still works.
-    assert client.post("/users/1/favorites/1", headers=AUTH).status_code == 200
-    assert names(client.get("/api/users/1/favorites")) == ["Game A"]
+    assert client.put("/api/me/favorites/1", headers=bearer()).status_code == 204
+    # Adding the same game twice is a no-op.
+    assert client.put("/api/me/favorites/1", headers=bearer()).status_code == 204
+    assert names(client.get("/api/me/favorites", headers=bearer())) == ["Game A"]
 
 
 def test_remove_favorite(client):
-    client.post("/api/users/1/favorites/1", headers=AUTH)
-    assert client.delete("/api/users/1/favorites/1", headers=AUTH).status_code == 200
-    assert names(client.get("/api/users/1/favorites")) == []
+    client.put("/api/me/favorites/1", headers=bearer())
+    assert client.delete("/api/me/favorites/1", headers=bearer()).status_code == 204
+    assert names(client.get("/api/me/favorites", headers=bearer())) == []
     # Removing a game that is not a favourite is a no-op.
-    assert client.delete("/api/users/1/favorites/1", headers=AUTH).status_code == 200
-    assert client.delete("/api/users/2/favorites/1", headers=AUTH).status_code == 403
+    assert client.delete("/api/me/favorites/1", headers=bearer()).status_code == 204
 
 
-def test_favorites_require_matching_user(client):
-    assert client.post("/api/users/1/favorites/1").status_code == 401
-    assert client.post("/api/users/2/favorites/1", headers=AUTH).status_code == 403
-    assert client.post("/api/users/1/favorites/999", headers=AUTH).status_code == 404
-    assert client.get("/api/users/999/favorites").status_code == 404
+def test_favorites_are_per_account(client):
+    client.put("/api/me/favorites/1", headers=bearer("account-1"))
+    assert names(client.get("/api/me/favorites", headers=bearer("account-2"))) == []
+    assert client.put("/api/me/favorites/999", headers=bearer()).status_code == 404
+
+
+def test_favorites_need_a_valid_token(client):
+    assert client.get("/api/me/favorites").status_code == 401
+    expired = {"Authorization": f"Bearer {make_token(expires_in=-120)}"}
+    wrong_audience = {"Authorization": f"Bearer {make_token(aud='another-app')}"}
+    wrong_issuer = {"Authorization": f"Bearer {make_token(iss='http://evil/auth/v1/')}"}
+    forged_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    forged = {"Authorization": f"Bearer {make_token(key=forged_key)}"}
+    for headers in (expired, wrong_audience, wrong_issuer, forged, {"Authorization": "Bearer x"}):
+        response = client.get("/api/me/favorites", headers=headers)
+        assert response.status_code == 401
+        assert response.headers["www-authenticate"] == "Bearer"
+
+
+def test_first_request_creates_the_user(client, db):
+    headers = bearer("account-new", email="new@example.com", email_verified=True)
+    me = client.get("/api/me", headers=headers).json()
+    assert me["email"] == "new@example.com"
+    assert client.get("/api/me", headers=headers).json()["id"] == me["id"]
+
+
+def test_account_from_before_rauthy_is_taken_over_by_verified_email(client, db):
+    legacy = models.User(email="old@example.com", favorite_games=[db.get(models.Game, 2)])
+    db.add(legacy)
+    db.commit()
+
+    unverified = bearer("account-x", email="old@example.com", email_verified=False)
+    assert client.get("/api/me/favorites", headers=unverified).json() == []
+
+    verified = bearer("account-old", email="old@example.com", email_verified=True)
+    assert names(client.get("/api/me/favorites", headers=verified)) == ["Game B"]
+
+
+def test_disabled_account_is_refused(client, db):
+    db.get(models.User, 1).is_active = False
+    db.commit()
+    assert client.get("/api/me", headers=bearer()).status_code == 403
 
 
 def test_remove_favorite_game(db):
@@ -158,30 +193,6 @@ def test_rating_distribution_and_top_lists(client):
     assert client.get("/api/stats/top-platforms?limit=1").json() == [
         {"name": "PlayStation 5", "count": 2}
     ]
-
-
-def test_create_user_and_login(client):
-    response = client.post(
-        "/api/users", json={"email": "newuser@example.com", "password": "newpassword"}
-    )
-    assert response.status_code == 200
-    user = response.json()
-    assert user["email"] == "newuser@example.com"
-    assert "hashed_password" not in user
-
-    login = client.post(
-        "/api/auth/login", json={"email": "newuser@example.com", "password": "newpassword"}
-    )
-    assert login.json() == {"id": user["id"], "email": "newuser@example.com"}
-
-    bad = client.post("/api/auth/login", json={"email": "newuser@example.com", "password": "x"})
-    assert bad.status_code == 401
-
-
-def test_create_user_duplicate_email(client):
-    response = client.post("/api/users", json={"email": "test@example.com", "password": "pw"})
-    assert response.status_code == 400
-    assert response.json()["detail"] == "Email already registered"
 
 
 def test_scheduled_task_api_lists_available_functions(client):

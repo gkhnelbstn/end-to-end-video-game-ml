@@ -3,9 +3,10 @@
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import models, schemas, security
+from . import models, schemas
 
 _RELATIONS = {
     "genres": models.Genre,
@@ -279,21 +280,37 @@ def get_platforms(db: Session) -> list[models.Platform]:
 # --- Users ---
 
 
-def get_user(db: Session, user_id: int) -> models.User | None:
-    return db.get(models.User, user_id)
-
-
 def get_user_by_email(db: Session, email: str) -> models.User | None:
     return db.scalar(select(models.User).where(models.User.email == email))
 
 
-def create_user(db: Session, user: schemas.UserCreate) -> models.User:
-    db_user = models.User(
-        email=user.email, hashed_password=security.get_password_hash(user.password)
-    )
-    db.add(db_user)
-    db.commit()
-    return db_user
+def user_for_account(db: Session, sub: str, email: str | None, verified: bool) -> models.User:
+    """The user row for a Rauthy account, created on its first request.
+
+    An account from before Rauthy (no `sub` yet) is taken over when the token carries
+    the same e-mail and Rauthy has verified it, so its favourites carry over.
+    """
+    user = db.scalar(select(models.User).where(models.User.sub == sub))
+    if user is not None:
+        return user
+
+    holder = get_user_by_email(db, email) if email else None
+    if holder is not None and holder.sub is None and verified:
+        holder.sub = sub
+        user = holder
+    else:
+        # An e-mail held by another account stays with it; this row just has none.
+        user = models.User(sub=sub, email=email if holder is None else None)
+        db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two first requests raced; the other one created the row.
+        db.rollback()
+        user = db.scalar(select(models.User).where(models.User.sub == sub))
+        if user is None:
+            raise
+    return user
 
 
 def add_favorite_game(db: Session, user: models.User, game: models.Game) -> models.User:

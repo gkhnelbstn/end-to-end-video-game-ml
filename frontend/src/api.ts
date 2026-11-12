@@ -38,10 +38,17 @@ function detailMessage(body: unknown, fallback: string): string {
   return fallback;
 }
 
-async function request<T>(path: string, init: RequestInit & { userId?: number } = {}): Promise<T> {
+let accessToken: string | undefined;
+
+/** Called by the auth provider whenever Rauthy issues, renews or drops the token. */
+export function setAccessToken(token: string | undefined) {
+  accessToken = token;
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body) headers.set("Content-Type", "application/json");
-  if (init.userId !== undefined) headers.set("X-User-Id", String(init.userId));
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
   let response: Response;
   try {
     response = await fetch(path, { ...init, headers });
@@ -96,13 +103,9 @@ export const api = {
   metacriticDistribution: () =>
     request<{ band: number; count: number }[]>("/api/stats/metacritic-distribution"),
 
-  register: (email: string, password: string) =>
-    request<User>("/api/users", { method: "POST", body: JSON.stringify({ email, password }) }),
-  login: (email: string, password: string) =>
-    request<User>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
-  favorites: (userId: number) => request<Game[]>(`/api/users/${userId}/favorites`),
-  addFavorite: (userId: number, gameId: number) =>
-    request<unknown>(`/api/users/${userId}/favorites/${gameId}`, { method: "POST", userId }),
-  removeFavorite: (userId: number, gameId: number) =>
-    request<unknown>(`/api/users/${userId}/favorites/${gameId}`, { method: "DELETE", userId }),
+  me: () => request<User>("/api/me"),
+  favorites: () => request<Game[]>("/api/me/favorites"),
+  addFavorite: (gameId: number) => request<null>(`/api/me/favorites/${gameId}`, { method: "PUT" }),
+  removeFavorite: (gameId: number) =>
+    request<null>(`/api/me/favorites/${gameId}`, { method: "DELETE" }),
 };

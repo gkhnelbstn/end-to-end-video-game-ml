@@ -89,30 +89,31 @@ function Reception({ game }: { game: Game }) {
 }
 
 function SaveButton({ gameId }: { gameId: number }) {
-  const { user } = useAuth();
+  const { account, ready, signIn } = useAuth();
   const [saved, setSaved] = useState<boolean | null>(null);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    if (!user) return;
-    api.favorites(user.id).then(
+    if (!account) return;
+    api.favorites().then(
       (games) => setSaved(games.some((g) => g.id === gameId)),
       () => setSaved(false),
     );
-  }, [user, gameId]);
+  }, [account, gameId]);
 
-  if (!user) {
+  if (!ready) return null;
+  if (!account) {
     return (
-      <Link to="/login" className="button quiet">
+      <button className="button quiet" onClick={() => signIn()}>
         Sign in to save
-      </Link>
+      </button>
     );
   }
   const toggle = async () => {
     setError(undefined);
     try {
-      if (saved) await api.removeFavorite(user.id, gameId);
-      else await api.addFavorite(user.id, gameId);
+      if (saved) await api.removeFavorite(gameId);
+      else await api.addFavorite(gameId);
       setSaved(!saved);
     } catch (e) {
       setError((e as Error).message);

@@ -7,8 +7,10 @@ from datetime import date
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
+import jwt
+from fastapi import Body, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -19,6 +21,7 @@ from src.ml.serving import ModelUnavailableError, model_service
 
 from . import config, crud, models, schemas, security
 from .admin import create_admin, setup_admin_views
+from .auth import InvalidToken, TokenVerifier, get_verifier
 from .celery_app import celery_app
 from .database import SessionLocal, engine, get_db
 from .logger_config import setup_logging
@@ -337,67 +340,66 @@ def reload_model():
     return schemas.ModelInfo(model_version=info["version"], **info)
 
 
-# ------------------ Users and favorites ------------------
+# ------------------ Signed-in user and favourites ------------------
+
+bearer = HTTPBearer(auto_error=False, description="Access token from Rauthy")
 
 
-def get_current_user(db: DbSession, x_user_id: Annotated[int | None, Header()] = None):
-    """Identify the caller from the X-User-Id header set by the dashboard after login.
-
-    This is a demo-grade scheme, not real authentication: there are no tokens.
-    """
-    user = crud.get_user(db, x_user_id) if x_user_id is not None else None
-    if not user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+def get_current_user(
+    db: DbSession,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+    verifier: Annotated[TokenVerifier, Depends(get_verifier)],
+) -> models.User:
+    """The user behind the request's Rauthy access token (created on first sight)."""
+    unauthenticated = HTTPException(
+        status_code=401, detail="Not signed in", headers={"WWW-Authenticate": "Bearer"}
+    )
+    if credentials is None:
+        raise unauthenticated
+    try:
+        claims = verifier.verify(credentials.credentials)
+    except InvalidToken as exc:
+        logger.info("Rejected access token: %s", exc)
+        raise unauthenticated from exc
+    except jwt.PyJWKClientConnectionError as exc:
+        logger.warning("Cannot fetch Rauthy's signing keys: %s", exc)
+        raise HTTPException(status_code=503, detail="Sign-in service unavailable") from exc
+    user = crud.user_for_account(
+        db,
+        sub=claims["sub"],
+        email=claims.get("email"),
+        verified=bool(claims.get("email_verified")),
+    )
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account disabled")
     return user
 
 
-@app.post("/api/users", response_model=schemas.User)
-def create_user(user: schemas.UserCreate, db: DbSession):
-    if crud.get_user_by_email(db, email=user.email):
-        raise HTTPException(status_code=400, detail="Email already registered")
-    return crud.create_user(db=db, user=user)
+CurrentUser = Annotated[models.User, Depends(get_current_user)]
 
 
-@app.post("/api/auth/login")
-def login(payload: schemas.LoginRequest, db: DbSession):
-    user = crud.get_user_by_email(db, email=payload.email)
-    if not user or not security.verify_password(payload.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    return {"id": user.id, "email": user.email}
+@app.get("/api/me", response_model=schemas.User)
+def read_me(user: CurrentUser):
+    return user
 
 
-# The un-prefixed path is kept as an alias for backwards compatibility.
-@app.post("/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
-@app.post("/api/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
-def add_favorite(
-    user_id: int,
-    game: Annotated[models.Game, Depends(get_game_or_404)],
-    db: DbSession,
-    current_user: Annotated[models.User, Depends(get_current_user)],
-):
-    if current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    return crud.add_favorite_game(db=db, user=current_user, game=game)
-
-
-@app.delete("/api/users/{user_id}/favorites/{game_id}", response_model=schemas.User)
-def remove_favorite(
-    user_id: int,
-    game: Annotated[models.Game, Depends(get_game_or_404)],
-    db: DbSession,
-    current_user: Annotated[models.User, Depends(get_current_user)],
-):
-    if current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    return crud.remove_favorite_game(db=db, user=current_user, game=game)
-
-
-@app.get("/api/users/{user_id}/favorites", response_model=list[schemas.Game])
-def list_favorites(user_id: int, db: DbSession):
-    user = crud.get_user(db, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+@app.get("/api/me/favorites", response_model=list[schemas.Game])
+def list_favorites(user: CurrentUser):
     return user.favorite_games
+
+
+@app.put("/api/me/favorites/{game_id}", status_code=204)
+def add_favorite(
+    game: Annotated[models.Game, Depends(get_game_or_404)], db: DbSession, user: CurrentUser
+):
+    crud.add_favorite_game(db=db, user=user, game=game)
+
+
+@app.delete("/api/me/favorites/{game_id}", status_code=204)
+def remove_favorite(
+    game: Annotated[models.Game, Depends(get_game_or_404)], db: DbSession, user: CurrentUser
+):
+    crud.remove_favorite_game(db=db, user=user, game=game)
 
 
 # ------------------ Statistics ------------------
