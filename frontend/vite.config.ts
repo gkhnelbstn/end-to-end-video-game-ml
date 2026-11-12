@@ -1,6 +1,5 @@
-/// <reference types="vitest" />
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 // In development the Vite server proxies /api to the FastAPI backend, so the browser
 // talks to one origin (no CORS), exactly like nginx does in the Docker image.

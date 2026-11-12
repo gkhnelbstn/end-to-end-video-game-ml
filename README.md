@@ -6,7 +6,13 @@ A small end-to-end data and ML platform for video games. Celery tasks collect ga
 **Steam + SteamSpy** (and optionally **IGDB**) into PostgreSQL, a model predicts a game's
 **Metacritic score** from its metadata, **MLflow** tracks every training run and serves the
 promoted model through the registry, a FastAPI service exposes data and predictions, and
-a React dashboard browses both. The whole stack starts with one command.
+a React dashboard browses both, with sign-in through Rauthy. The whole stack starts with
+one command.
+
+**How it all fits together:** [docs/architecture.md](docs/architecture.md) walks through
+every flow with diagrams: the services, startup order, ingestion, merging sources,
+training, serving estimates, sign-in, the database and CI. Release notes are in
+[CHANGELOG.md](CHANGELOG.md).
 
 > **Data sources.** The original source, the RAWG API, was unreachable when this was
 > written (HTTP 522 from `api.rawg.io` on 2026-11-10). The bundled CSVs in `data/raw` are
@@ -99,6 +105,8 @@ flowchart LR
     B -->|signing keys| A
     FL[Flower] --> R
 ```
+
+The [architecture walk-through](docs/architecture.md) has a diagram for each part.
 
 | Compose service | Role |
 | --- | --- |
@@ -371,7 +379,7 @@ calls the prediction endpoints.
 
 ### Dashboard development
 
-Requires Node.js 22. The Vite dev server proxies `/api` to the backend on port 8000 (set
+Requires Node.js 22.12 or newer. The Vite dev server proxies `/api` to the backend on port 8000 (set
 `BACKEND_URL` to point it elsewhere), so start the stack or just `backend` first:
 
 ```bash
@@ -388,7 +396,8 @@ games critics never scored, and recently reviewed games), a page per game (the c
 score, or the expected reception when there is none; for scored games, how the score
 compares with what the model would have said), the catalogue in numbers, an
 "estimate a game that isn't out yet" page (`/estimate`, linked from the footer and from
-"How estimates work"), and sign-in/registration with a favourites list. When the API
+"How estimates work"), and a favourites list for signed-in users (sign-in and
+registration happen on Rauthy's pages). When the API
 cannot be reached the dashboard says so and offers a retry. It follows the OS light/dark
 setting.
 
@@ -398,6 +407,9 @@ setting.
 ├── compose.yaml            # the whole stack
 ├── Dockerfile              # multi-stage; targets: app, mlflow
 ├── pyproject.toml, uv.lock # dependencies (uv)
+├── CHANGELOG.md            # release notes
+├── docs/architecture.md    # how everything works, with diagrams
+├── deploy/rauthy/          # Rauthy's client definition (sign-in)
 ├── frontend/               # React + Vite + TypeScript dashboard, nginx config, Dockerfile
 ├── data/raw/               # RAWG CSV snapshot used by the seed script
 ├── notebooks/              # metacritic-analysis.ipynb, plus early exploration notebooks
