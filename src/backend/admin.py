@@ -103,10 +103,10 @@ class UserAdmin(ModelView, model=User):
     name_plural = "Users"
     icon = "fa-solid fa-users"
 
-    column_list = [User.id, User.email, User.is_active, User.role, User.created_at]
+    column_list = [User.id, User.email, User.sub, User.is_active, User.role, User.created_at]
     column_searchable_list = [User.email]
-    form_excluded_columns = [User.hashed_password, User.favorite_games]
-    # Users register through the API, which hashes their password.
+    form_excluded_columns = [User.sub, User.favorite_games]
+    # Accounts are created in Rauthy; a row appears here on the account's first request.
     can_create = False
 
 

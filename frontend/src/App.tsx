@@ -1,14 +1,14 @@
 import { Link, Navigate, NavLink, Route, Routes } from "react-router-dom";
 
-import { useAuth } from "./auth";
-import { Favorites, Login, Register } from "./pages/Account";
+import { accountUrl, registerUrl, useAuth } from "./auth";
+import { Callback, Favorites, Login } from "./pages/Account";
 import GameDetail from "./pages/GameDetail";
 import Games from "./pages/Games";
 import Predictor from "./pages/Predictor";
 import Stats from "./pages/Stats";
 
 function Header() {
-  const { user, signOut } = useAuth();
+  const { account, ready, signIn, signOut } = useAuth();
   return (
     <header className="topbar">
       <div className="topbar-inner">
@@ -23,17 +23,22 @@ function Header() {
           <NavLink to="/favorites">Favourites</NavLink>
         </nav>
         <div className="account">
-          {user ? (
+          {!ready ? null : account ? (
             <>
-              <span className="account-name" title={user.email}>
-                {user.email}
-              </span>
+              <a className="account-name" href={accountUrl} title="Your account: e-mail, password, passkeys">
+                {account.name ?? account.email}
+              </a>
               <button className="link-button" onClick={signOut}>
                 Sign out
               </button>
             </>
           ) : (
-            <Link to="/login">Sign in</Link>
+            <>
+              <a href={registerUrl}>Create account</a>
+              <button className="link-button" onClick={() => signIn()}>
+                Sign in
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -54,7 +59,7 @@ export default function App() {
           <Route path="/predict" element={<Navigate to="/estimate" replace />} />
           <Route path="/favorites" element={<Favorites />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+          <Route path="/callback" element={<Callback />} />
           <Route
             path="*"
             element={

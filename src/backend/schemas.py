@@ -110,21 +110,10 @@ class Game(GameFields, _OrmModel):
     expected: Expectation | None = None
 
 
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class UserCreate(BaseModel):
-    email: str
-    password: str
-
-
 class User(_OrmModel):
     id: int
-    email: str
+    email: str | None
     is_active: bool
-    favorite_games: list[Game] = []
 
 
 # --- Predictions -------------------------------------------------------------

@@ -117,13 +117,15 @@ class UserRole(enum.Enum):
 
 
 class User(Base):
-    """A dashboard user."""
+    """A dashboard user. Accounts live in Rauthy; this row holds what the app keeps for them."""
 
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String, unique=True, index=True)
-    hashed_password: Mapped[str]
+    # Rauthy's id for the account (the token's `sub`). Null only for accounts created
+    # before sign-in moved to Rauthy, until their owner signs in with the same e-mail.
+    sub: Mapped[str | None] = mapped_column(String, unique=True, index=True)
+    email: Mapped[str | None] = mapped_column(String, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(default=True, server_default=true())
     # Store the enum *values* ("user"/"admin"), matching the type the migration creates.
     role: Mapped[UserRole] = mapped_column(

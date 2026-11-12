@@ -41,7 +41,7 @@ def test_migrations_match_models():
 
     with engine.begin() as conn:
         # The enum stores the lowercase values the User model sends.
-        conn.execute(text("INSERT INTO users (email, hashed_password) VALUES ('a@b.c', 'x')"))
+        conn.execute(text("INSERT INTO users (sub, email) VALUES ('account', 'a@b.c')"))
         assert conn.execute(text("SELECT role::text, is_active FROM users")).one() == (
             "user",
             True,
